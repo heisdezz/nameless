@@ -137,7 +137,7 @@ func TestOpenFolderUI(t *testing.T) {
 	a := &app{cfg: defaultConfig(), outDir: tmpDir}
 	a.applyProfile(profile{id: 1, name: "myprofile"}, vids)
 
-	tt := ui.NewTester(a.view, 480, 360)
+	tt := ui.NewTester(a.view, 640, 480)
 
 	// Since only 1 video is done (not all), per-row button exists, but after-success button does not
 	if !tt.HasText("Open folder") {
@@ -167,7 +167,7 @@ func TestOpenFolderUI(t *testing.T) {
 	// Now mark all videos done to verify after-success "Open output folder" button
 	a.videos[1].status = "done"
 	a.videos[1].path = filepath.Join(tmpDir, "vid2.mp4")
-	tt = ui.NewTester(a.view, 480, 360)
+	tt = ui.NewTester(a.view, 640, 480)
 
 	if !tt.HasText("Open output folder") {
 		t.Fatalf("expected 'Open output folder' button on completion, got texts %q", tt.Texts())
@@ -228,32 +228,75 @@ func TestSidebarNavigation(t *testing.T) {
 
 	tt := ui.NewTester(a.view, 640, 480)
 
-	// Verify sidebar elements are present
-	if !tt.HasText("+ New Download") || !tt.HasText("Settings") || !tt.HasText("tiktok_dancer") {
+	// Verify sidebar / rail elements are present
+	if !tt.HasText("📥") || !tt.HasText("⚙") || !tt.HasText("tiktok_dancer") {
 		t.Fatalf("sidebar missing navigation items: %v", tt.Texts())
 	}
 
-	// Click Settings in sidebar
-	if err := tt.Click("Settings"); err != nil {
-		t.Fatalf("failed to click Settings in sidebar: %v", err)
+	// Click Settings in nav rail
+	if err := tt.Click("⚙"); err != nil {
+		t.Fatalf("failed to click Settings in nav rail: %v", err)
 	}
 	if a.screen != screenSettings {
 		t.Fatalf("expected screenSettings, got %v", a.screen)
 	}
 
-	// Click + New Download in sidebar to return
-	if err := tt.Click("+ New Download"); err != nil {
-		t.Fatalf("failed to click + New Download in sidebar: %v", err)
+	// Click 📥 in nav rail to return
+	if err := tt.Click("📥"); err != nil {
+		t.Fatalf("failed to click 📥 in nav rail: %v", err)
 	}
 	if a.screen != screenMain {
 		t.Fatalf("expected screenMain, got %v", a.screen)
 	}
 
-	// Click a profile in sidebar
+	// Click a profile in right panel
 	if err := tt.Click("tiktok_dancer"); err != nil {
-		t.Fatalf("failed to click profile in sidebar: %v", err)
+		t.Fatalf("failed to click profile: %v", err)
 	}
 	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
 		t.Fatalf("expected screenProfile with profile 1, got screen=%v profile=%v", a.screen, a.currentProfile)
+	}
+}
+
+func TestKeyboardOperability(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
+
+	// 1. Enter on profileURL TextInput triggers fetchProfile
+	a.profileURL = "https://www.tiktok.com/@testuser"
+	a.fetchProfile()
+	if !a.fetching {
+		t.Fatalf("expected a.fetching to be true after fetchProfile")
+	}
+	a.fetching = false
+
+	// 2. Escape shortcut on screenSettings returns to screenMain
+	a.enterSettings()
+	if a.screen != screenSettings {
+		t.Fatalf("expected screenSettings, got %v", a.screen)
+	}
+	ttSettings := ui.NewTester(a.view, 640, 480)
+	ttSettings.Key(0, ui.KeyEscape)
+	if a.screen != screenMain {
+		t.Fatalf("expected screenMain after KeyEscape, got %v", a.screen)
+	}
+
+	// 3. Escape shortcut on screenProfile returns to screenMain
+	a.applyProfile(profile{id: 1, name: "p1"}, []video{{id: 1, title: "v1", status: "pending"}})
+	if a.screen != screenProfile {
+		t.Fatalf("expected screenProfile, got %v", a.screen)
+	}
+	ttProfile := ui.NewTester(a.view, 640, 480)
+	ttProfile.Key(0, ui.KeyEscape)
+	if a.screen != screenMain {
+		t.Fatalf("expected screenMain after KeyEscape on profile screen, got %v", a.screen)
+	}
+
+	// 4. Ctrl+D shortcut on screenProfile triggers startDownload
+	a.applyProfile(profile{id: 1, name: "p1"}, []video{{id: 1, title: "v1", status: "pending"}})
+	ttProfile = ui.NewTester(a.view, 640, 480)
+	ttProfile.Key(ui.Ctrl, ui.KeyD)
+	if !a.downloading {
+		t.Fatalf("expected a.downloading to be true after Ctrl+D")
 	}
 }

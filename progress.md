@@ -88,7 +88,7 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 
 | ID  | Task                                                                   | WS  | Status         | Agent       | Note                                                                                                                     |
 | --- | ---------------------------------------------------------------------- | --- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| P-1 | Keyboard operability & focus order all screens                         | E   | 🚡 In progress | Antigravity |                                                                                                                          |
+| P-1 | Keyboard operability & focus order all screens                         | E   | ✅ Done        | Antigravity | Escape navigates to main, Ctrl+D triggers batch download; tested via ui.NewTester       |
 | P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | ✅ Done        | Antigravity | scroll containers & max-width constraints on main/profile; 360x280 ui.NewTester coverage                                 |
 | P-3 | Toasts for transient errors; status summary line on completion         | E   | ✅ Done        | Antigravity | toasts queued on fetch/download events; summary line on completion; ui.NewTester tests                                   |
 | P-4 | "Open folder" per row + after-success                                  | E   | ✅ Done        | Antigravity | "Open folder" on done rows + "Open output folder" after-success via c.Services().OpenURL & clipboard; ui.NewTester tests |
