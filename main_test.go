@@ -407,3 +407,50 @@ func TestRecentDownloads(t *testing.T) {
 		t.Fatalf("expected OpenedURLs to contain folder URL, got none")
 	}
 }
+
+func TestShadcnSidebarFeatures(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
+	a.profiles = []profile{
+		{id: 1, name: "tiktok_dancer", url: "https://tiktok.com/@tiktok_dancer"},
+		{id: 2, name: "music_clips", url: "https://tiktok.com/@music_clips"},
+	}
+
+	tt := ui.NewTester(a.view, 640, 480)
+
+	// 1. Sidebar header and navigation items
+	if !tt.HasText("nameless") || !tt.HasText("ARCHIVED PROFILES") || !tt.HasText("Home") || !tt.HasText("Profiles") || !tt.HasText("Settings") {
+		t.Fatalf("sidebar missing primary elements: %v", tt.Texts())
+	}
+
+	// 2. Profile items in sidebar with avatar initials
+	if !tt.HasText("tiktok_dancer") || !tt.HasText("music_clips") {
+		t.Fatalf("sidebar missing profiles: %v", tt.Texts())
+	}
+	// Initial letters T and M
+	if !tt.HasText("T") || !tt.HasText("M") {
+		t.Fatalf("sidebar missing avatar initials: %v", tt.Texts())
+	}
+
+	// 3. Filter profiles via sidebarFilter
+	a.sidebarFilter = "music"
+	ttFilter := ui.NewTester(a.view, 640, 480)
+	if !ttFilter.HasText("music_clips") {
+		t.Fatalf("expected music_clips in filtered sidebar")
+	}
+
+	// 4. Click profile in sidebar to open directly
+	a.sidebarFilter = ""
+	ttClick := ui.NewTester(a.view, 640, 480)
+	if err := ttClick.Click("tiktok_dancer"); err != nil {
+		t.Fatalf("failed to click profile in sidebar: %v", err)
+	}
+	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
+		t.Fatalf("expected screenProfile with tiktok_dancer, got screen=%v profile=%v", a.screen, a.currentProfile)
+	}
+
+	// 5. Engine status in bottom card
+	if !ttClick.HasText("yt-dlp Ready") {
+		t.Fatalf("sidebar footer missing engine status: %v", ttClick.Texts())
+	}
+}
