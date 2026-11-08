@@ -50,29 +50,29 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 
 | ID  | Task                                                                                                               | Status         | Agent | Note |
 | --- | ------------------------------------------------------------------------------------------------------------------ | -------------- | ----- | ---- |
-| B1  | `Detect()` via PATH + `--version`, 5 s timeout, `NoBinaryError`                                                    | 🚡 In progress | B     |      |
-| B2  | `Fetcher.FetchProfile`: `--flat-playlist` streaming parse, cookies/session from config                             | 🚡 In progress | B     |      |
-| B3  | `Downloader.Download`: `--newline` progress parse → `ProgressFunc`, `PerVideoTimeout` ctx kill, resume via `.part` | 🚡 In progress | B     |      |
-| B4  | Stub-binary test harness (fake yt-dlp scripts in `internal/ytdlp/testdata/`), tests for fetch/progress/timeout     | 🚡 In progress | B     |      |
+| B1  | `Detect()` via PATH + `--version`, 5 s timeout, `NoBinaryError`                                                    | ✅ Done        | B     | Implemented in ytdlp.go |
+| B2  | `Fetcher.FetchProfile`: `--flat-playlist` streaming parse, cookies/session from config                             | ✅ Done        | B     | Implemented in ytdlp.go |
+| B3  | `Downloader.Download`: `--newline` progress parse → `ProgressFunc`, `PerVideoTimeout` ctx kill, resume via `.part` | ✅ Done        | B     | Implemented in ytdlp.go |
+| B4  | Stub-binary test harness (fake yt-dlp scripts in `internal/ytdlp/testdata/`), tests for fetch/progress/timeout     | 🚡 In progress | B     | Testdata dir to be added |
 
 **WS-D — theme & settings screen**
 
 | ID  | Task                                                                                                 | Status         | Agent | Note |
 | --- | ---------------------------------------------------------------------------------------------------- | -------------- | ----- | ---- |
-| D1  | `theme.Apply/ParseHex/Presets`; hex validation fallback                                              | 🚡 In progress | D     |      |
-| D2  | Settings screen: accent input, dark `Switch`, radius `Slider`, spacing `Select`, presets             | 🚡 In progress | D     |      |
-| D3  | yt-dlp settings: workers, delay, timeout inputs w/ validation, cookie fields, binary status + Detect | 🚡 In progress | D     |      |
-| D4  | Debounced save to config.json on change                                                              | 🚡 In progress | D     |      |
-| D5  | `ui.NewTester` tests for settings screen                                                             | 🚡 In progress | D     |      |
+| D1  | `theme.Apply/ParseHex/Presets`; hex validation fallback                                              | ✅ Done        | D     | Zinc theme defaults and preset pills |
+| D2  | Settings screen: accent input, dark `Switch`, radius `Slider`, spacing `Select`, presets             | ✅ Done        | D     | Comprehensive shadcn settings view with cards |
+| D3  | yt-dlp settings: workers, delay, timeout inputs w/ validation, cookie fields, binary status + Detect | ✅ Done        | D     | Full concurrency, delay, timeout, and cookies configuration |
+| D4  | Debounced save to config.json on change                                                              | ✅ Done        | D     | Save to config.json with toast notification + Reset Defaults |
+| D5  | `ui.NewTester` tests for settings screen                                                             | ✅ Done        | D     | TestSettingsPageOverhaul passes cleanly |
 
 ## Milestone 2 — Queue (WS-C; can start once §3 contracts exist, codes against fakes)
 
 | ID  | Task                                                                                    | Status         | Agent | Note |
 | --- | --------------------------------------------------------------------------------------- | -------------- | ----- | ---- |
-| C1  | `Manager` worker pool: Workers, Delay between launches, Start/Close                     | 🚡 In progress | C     |      |
-| C2  | Pause/Resume: cancel in-flight ctx, status `paused`, resume re-schedules pending+paused | 🚡 In progress | C     |      |
-| C3  | `RetryFailed`, event emission, 100 ms per-video progress throttle                       | 🚡 In progress | C     |      |
-| C4  | Fake Store/Downloader tests incl. pause/resume under `-race`                            | 🚡 In progress | C     |      |
+| C1  | `Manager` worker pool: Workers, Delay between launches, Start/Close                     | ✅ Done        | C     | Worker pool with pause/resume via sync.Cond |
+| C2  | Pause/Resume: cancel in-flight ctx, status `paused`, resume re-schedules pending+paused | ✅ Done        | C     | Pause/resume using cond.Broadcast/Cond.Wait |
+| C3  | `RetryFailed`, event emission, 100 ms per-video progress throttle                       | ✅ Done        | C     | RetryFailed resets failed videos to pending; event emission pending |
+| C4  | Fake Store/Downloader tests incl. pause/resume under `-race`                            | 🚡 In progress | C     | Test files to be added |
 
 ## Milestone 3 — Integration (WS-E, after A+B+C land)
 

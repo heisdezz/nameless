@@ -1,11 +1,21 @@
 {
-  "cookie": "",
-  "session_id": "",
-  "env_file": ".env",
   "default_download_location": "./downloads",
+  "naming_template": "%(upload_date)s_%(id)s_%(title)s.%(ext)s",
+  "video_quality": "best",
+  "write_thumbnail": true,
+  "write_info_json": false,
+  "write_subtitles": false,
   "workers": 3,
   "delay": "1s",
   "per_video_timeout": "5m",
-  "prefer_ytdlp": false,
-  "install_ytdlp": false
+  "cookie": "",
+  "session_id": "",
+  "cookies_from_browser": "",
+  "ytdlp_path": "",
+  "theme": {
+    "accent": "#fafafa",
+    "dark": true,
+    "radius": 8,
+    "spacing": 4
+  }
 }

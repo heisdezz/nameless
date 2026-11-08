@@ -24,9 +24,11 @@ const (
 	DefaultDelay            = time.Second
 	DefaultPerVideoTimeout  = 5 * time.Minute
 	DefaultDownloadLocation = "./downloads"
+	DefaultNamingTemplate   = "%(upload_date)s_%(id)s_%(title)s.%(ext)s"
+	DefaultVideoQuality     = "best"
 	DefaultEnvFile          = ".env"
-	DefaultAccentHex        = "#4f46e5"
-	DefaultRadius           = float32(12) // DIP
+	DefaultAccentHex        = "#fafafa"
+	DefaultRadius           = float32(8)  // DIP
 	DefaultSpacing          = float32(4)  // mygo spacing unit
 )
 
@@ -42,6 +44,13 @@ type ThemeConfig struct {
 type Config struct {
 	Cookie, SessionID, EnvFile string // as in existing config.json
 	DefaultDownloadLocation    string
+	NamingTemplate             string
+	VideoQuality               string
+	WriteThumbnail             bool
+	WriteInfoJSON              bool
+	WriteSubtitles             bool
+	CookiesFromBrowser         string
+	YTDLPPath                  string
 	Workers                    int           // default 3
 	Delay                      time.Duration // parsed from "1s"
 	PerVideoTimeout            time.Duration // parsed from "5m"
@@ -54,11 +63,15 @@ func Default() *Config {
 	return &Config{
 		EnvFile:                 DefaultEnvFile,
 		DefaultDownloadLocation: DefaultDownloadLocation,
+		NamingTemplate:          DefaultNamingTemplate,
+		VideoQuality:            DefaultVideoQuality,
+		WriteThumbnail:          true,
 		Workers:                 DefaultWorkers,
 		Delay:                   DefaultDelay,
 		PerVideoTimeout:         DefaultPerVideoTimeout,
 		Theme: ThemeConfig{
 			AccentHex: DefaultAccentHex,
+			Dark:      true,
 			Radius:    DefaultRadius,
 			Spacing:   DefaultSpacing,
 		},
@@ -75,15 +88,22 @@ type themeFile struct {
 
 // configFile mirrors the on-disk config.json shape (snake_case keys).
 type configFile struct {
-	Cookie                  string     `json:"cookie"`
-	SessionID               string     `json:"session_id"`
-	EnvFile                 string     `json:"env_file"`
+	Cookie                  string     `json:"cookie,omitempty"`
+	SessionID               string     `json:"session_id,omitempty"`
+	EnvFile                 string     `json:"env_file,omitempty"`
 	DefaultDownloadLocation string     `json:"default_download_location"`
+	NamingTemplate          string     `json:"naming_template,omitempty"`
+	VideoQuality            string     `json:"video_quality,omitempty"`
+	WriteThumbnail          bool       `json:"write_thumbnail,omitempty"`
+	WriteInfoJSON           bool       `json:"write_info_json,omitempty"`
+	WriteSubtitles          bool       `json:"write_subtitles,omitempty"`
+	CookiesFromBrowser      string     `json:"cookies_from_browser,omitempty"`
+	YTDLPPath               string     `json:"ytdlp_path,omitempty"`
 	Workers                 int        `json:"workers"`
 	Delay                   string     `json:"delay"`
 	PerVideoTimeout         string     `json:"per_video_timeout"`
-	PreferYTDLP             bool       `json:"prefer_ytdlp"`
-	InstallYTDLP            bool       `json:"install_ytdlp"`
+	PreferYTDLP             bool       `json:"prefer_ytdlp,omitempty"`
+	InstallYTDLP            bool       `json:"install_ytdlp,omitempty"`
 	Theme                   *themeFile `json:"theme,omitempty"`
 }
 
@@ -192,6 +212,21 @@ func parse(raw []byte, path string) (*Config, error) {
 	if f.DefaultDownloadLocation != "" {
 		cfg.DefaultDownloadLocation = f.DefaultDownloadLocation
 	}
+	if f.NamingTemplate != "" {
+		cfg.NamingTemplate = f.NamingTemplate
+	}
+	if f.VideoQuality != "" {
+		cfg.VideoQuality = f.VideoQuality
+	}
+	cfg.WriteThumbnail = f.WriteThumbnail
+	cfg.WriteInfoJSON = f.WriteInfoJSON
+	cfg.WriteSubtitles = f.WriteSubtitles
+	if f.CookiesFromBrowser != "" {
+		cfg.CookiesFromBrowser = f.CookiesFromBrowser
+	}
+	if f.YTDLPPath != "" {
+		cfg.YTDLPPath = f.YTDLPPath
+	}
 	cfg.PreferYTDLP = f.PreferYTDLP
 	cfg.InstallYTDLP = f.InstallYTDLP
 
@@ -216,6 +251,13 @@ func (c *Config) toFile() configFile {
 		SessionID:               c.SessionID,
 		EnvFile:                 c.EnvFile,
 		DefaultDownloadLocation: c.DefaultDownloadLocation,
+		NamingTemplate:          c.NamingTemplate,
+		VideoQuality:            c.VideoQuality,
+		WriteThumbnail:          c.WriteThumbnail,
+		WriteInfoJSON:           c.WriteInfoJSON,
+		WriteSubtitles:          c.WriteSubtitles,
+		CookiesFromBrowser:      c.CookiesFromBrowser,
+		YTDLPPath:               c.YTDLPPath,
 		Workers:                 c.Workers,
 		Delay:                   c.Delay.String(),
 		PerVideoTimeout:         c.PerVideoTimeout.String(),

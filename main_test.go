@@ -517,3 +517,152 @@ func TestProfilesCardGridAndProfileImage(t *testing.T) {
 		t.Fatalf("profiles card missing action buttons: %v", tt.Texts())
 	}
 }
+
+
+func TestProfilesGridFiveColsAndDropdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	avatarFile := filepath.Join(tmpDir, "avatar1.png")
+	pngData := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+		0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+		0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+		0x42, 0x60, 0x82,
+	}
+	if err := os.WriteFile(avatarFile, pngData, 0644); err != nil {
+		t.Fatalf("failed to write test avatar: %v", err)
+	}
+
+	tmpDB := filepath.Join(tmpDir, "profiles_grid.db")
+	db, err := sql.Open("sqlite", tmpDB)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)")
+	db.Exec("INSERT INTO profiles(id, url, name, avatar_url, avatar_path) VALUES(1, 'https://tiktok.com/@creator1', 'creator1', 'https://avatar1.jpg', ?)", avatarFile)
+	db.Exec("INSERT INTO profiles(id, url, name, avatar_url, avatar_path) VALUES(2, 'https://tiktok.com/@creator2', 'creator2', '', '')")
+
+	a := &app{cfg: defaultConfig(), db: db, avatarsDir: tmpDir}
+	a.loadProfiles()
+
+	// 1. Verify default 5 columns
+	a.screen = screenProfilesList
+	tt := ui.NewTester(a.view, 640, 480)
+
+	if !tt.HasText("Archived Profiles") || !tt.HasText("creator1") || !tt.HasText("creator2") {
+		t.Fatalf("profiles grid missing headers or creator cards: %v", tt.Texts())
+	}
+	if !tt.HasText("Columns:") {
+		t.Fatalf("profiles grid missing 'Columns:' dropdown label: %v", tt.Texts())
+	}
+	if a.gridCols != "5" {
+		t.Fatalf("expected default gridCols to be '5', got %q", a.gridCols)
+	}
+
+	// 2. Click View Videos on card in 5-column grid (ensures no button overflow or collision)
+	if err := tt.Click("View Videos"); err != nil {
+		t.Fatalf("failed to click View Videos on profile card: %v", err)
+	}
+	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
+		t.Fatalf("expected screenProfile after View Videos, got screen=%v profile=%v", a.screen, a.currentProfile)
+	}
+
+	// 3. Change columns to 3 and 7 (min 3 max 7)
+	a.screen = screenProfilesList
+	a.gridCols = "3"
+	tt3 := ui.NewTester(a.view, 640, 480)
+	if !tt3.HasText("creator1") {
+		t.Fatalf("missing creator1 at 3 cols")
+	}
+
+	a.gridCols = "7"
+	tt7 := ui.NewTester(a.view, 640, 480)
+	if !tt7.HasText("creator1") {
+		t.Fatalf("missing creator1 at 7 cols")
+	}
+}
+
+func TestSettingsPageOverhaul(t *testing.T) {
+	cfgFile := filepath.Join(t.TempDir(), "config.json")
+	a := &app{
+		cfg:     defaultConfig(),
+		cfgPath: cfgFile,
+	}
+	a.enterSettings()
+
+	tt := ui.NewTester(a.view, 800, 600)
+
+	// Verify all cards and options are rendered
+	expectedSections := []string{
+		"Download & Engine Settings",
+		"Storage & Naming",
+		"Video Filename Template",
+		"Video Quality Preference",
+		"Save Video Thumbnails",
+		"Save Metadata Info JSON",
+		"Save Subtitles & Captions",
+		"Engine & Concurrency",
+		"Parallel Workers",
+		"Delay Between Downloads",
+		"Per-Video Timeout",
+		"Custom yt-dlp Executable Path",
+		"TikTok Authentication & Cookies",
+		"Extract Cookies from Browser",
+		"Netscape Cookies File",
+		"Session ID Cookie",
+		"Theme & Appearance",
+		"Accent Color",
+		"Corner Radius",
+		"Interface Spacing Density",
+		"Dark Mode",
+		"Save Settings",
+		"Reset Defaults",
+	}
+
+	for _, text := range expectedSections {
+		if !tt.HasText(text) {
+			t.Fatalf("settings page missing expected text %q", text)
+		}
+	}
+
+	// Change values in memory
+	a.outDir = "/custom/downloads"
+	a.cfg.NamingTemplate = "%(id)s.%(ext)s"
+	a.workersF64 = 6
+	a.delayStr = "2s"
+	a.timeoutStr = "10m"
+	a.cfg.VideoQuality = "720p"
+	a.cfg.WriteThumbnail = false
+	a.cfg.WriteInfoJSON = true
+	a.cfg.WriteSubtitles = true
+	a.cfg.CookiesFromBrowser = "firefox"
+	a.cfg.YTDLPPath = "/custom/yt-dlp"
+
+	// Save settings
+	a.saveSettings()
+
+	// Verify on-disk config file
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("failed to read saved config file: %v", err)
+	}
+	strData := string(data)
+	if !strings.Contains(strData, "/custom/downloads") ||
+		!strings.Contains(strData, "%(id)s.%(ext)s") ||
+		!strings.Contains(strData, "720p") ||
+		!strings.Contains(strData, "firefox") ||
+		!strings.Contains(strData, "/custom/yt-dlp") {
+		t.Fatalf("saved config missing modified values:\n%s", strData)
+	}
+
+	// Test Reset Defaults
+	a.resetSettingsToDefault()
+	if a.outDir != "./downloads" || a.workersF64 != 3 || a.cfg.VideoQuality != "best" {
+		t.Fatalf("reset defaults did not restore defaults: outDir=%q workers=%v quality=%q", a.outDir, a.workersF64, a.cfg.VideoQuality)
+	}
+}

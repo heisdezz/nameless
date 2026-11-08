@@ -1,28 +1,50 @@
 package main
 
 import (
-	"github.com/egoist/mygo/ui"
 	"nameless/ui/pages"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (a *app) viewSettings(c *ui.Context) {
-	var cookie, sessionID, accentHex *string
-	if a.cfg != nil {
-		cookie = &a.cfg.Cookie
-		sessionID = &a.cfg.SessionID
-		accentHex = &a.cfg.Theme.AccentHex
+	if a.cfg == nil {
+		a.cfg = defaultConfig()
 	}
 
 	pages.RenderSettings(c, pages.SettingsProps{
-		OutDir:     &a.outDir,
-		DelayStr:   &a.delayStr,
-		TimeoutStr: &a.timeoutStr,
-		Cookie:     cookie,
-		SessionID:  sessionID,
-		AccentHex:  accentHex,
-		Spacing:    a.spacingSel,
+		OutDir:             &a.outDir,
+		NamingTemplate:     &a.cfg.NamingTemplate,
+		WorkersF64:         &a.workersF64,
+		DelayStr:           &a.delayStr,
+		TimeoutStr:         &a.timeoutStr,
+		VideoQuality:       &a.cfg.VideoQuality,
+		WriteThumbnail:     &a.cfg.WriteThumbnail,
+		WriteInfoJSON:      &a.cfg.WriteInfoJSON,
+		WriteSubtitles:     &a.cfg.WriteSubtitles,
+		Cookie:             &a.cfg.Cookie,
+		SessionID:          &a.cfg.SessionID,
+		CookiesFromBrowser: &a.cfg.CookiesFromBrowser,
+		YTDLPPath:          &a.cfg.YTDLPPath,
+		AccentHex:          &a.cfg.Theme.AccentHex,
+		Dark:               &a.cfg.Theme.Dark,
+		RadiusF64:          &a.radiusF64,
+		Spacing:            a.spacingSel,
+		EngineStatus:       a.ytdlpVersion,
 		OnBack: func() {
 			a.screen = screenMain
+		},
+		OnSave: func() {
+			a.saveSettings()
+		},
+		OnResetDefaults: func() {
+			a.resetSettingsToDefault()
+		},
+		OnSelectAccentPreset: func(hex string) {
+			a.cfg.Theme.AccentHex = hex
+		},
+		OnSelectSpacing: func(s string) {
+			a.spacingSel = s
+			a.cfg.Theme.Spacing = spacingUnit(s)
 		},
 	})
 }

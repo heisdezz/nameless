@@ -4,23 +4,31 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/egoist/mygo/ui"
 	"nameless/ui/pages"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // viewProfilesList renders the dedicated Profiles overview page using pages.RenderProfiles.
 func (a *app) viewProfilesList(c *ui.Context) {
+	if a.gridCols == "" {
+		a.gridCols = "5"
+	}
+
 	items := make([]pages.ProfileItem, len(a.profiles))
 	for i, p := range a.profiles {
 		items[i] = pages.ProfileItem{
-			ID:   p.id,
-			Name: p.name,
-			URL:  p.url,
+			ID:         p.id,
+			Name:       p.name,
+			URL:        p.url,
+			AvatarPath: p.avatarPath,
+			AvatarURL:  p.avatarURL,
 		}
 	}
 
 	pages.RenderProfiles(c, pages.ProfilesProps{
 		Profiles: items,
+		GridCols: &a.gridCols,
 		OnNew: func() {
 			a.screen = screenMain
 		},

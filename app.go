@@ -78,6 +78,7 @@ type app struct {
 	sidebarFilter string
 	imgCache      map[int64]ui.ImageSource
 	avatarsDir    string
+	gridCols      string
 
 	// profile view
 	currentProfile *profile
@@ -271,7 +272,10 @@ func (a *app) profileImage(p profile) ui.ImageSource {
 
 // enterSettings prepares the settings bindings before the screen is shown.
 func (a *app) enterSettings() {
-	if a.outDir == "" && a.cfg != nil {
+	if a.cfg == nil {
+		a.cfg = defaultConfig()
+	}
+	if a.outDir == "" {
 		a.outDir = a.cfg.DefaultDownloadLocation
 	}
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
@@ -280,6 +284,49 @@ func (a *app) enterSettings() {
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
 	a.screen = screenSettings
+}
+
+// saveSettings persists the in-memory settings to config.json.
+func (a *app) saveSettings() {
+	if a.cfg == nil {
+		return
+	}
+	if a.outDir != "" {
+		a.cfg.DefaultDownloadLocation = a.outDir
+	}
+	if a.workersF64 >= 1 && a.workersF64 <= 16 {
+		a.cfg.Workers = int(a.workersF64)
+	}
+	if d, err := time.ParseDuration(a.delayStr); err == nil && d > 0 {
+		a.cfg.Delay = d
+	}
+	if to, err := time.ParseDuration(a.timeoutStr); err == nil && to > 0 {
+		a.cfg.PerVideoTimeout = to
+	}
+	if a.radiusF64 >= 0 {
+		a.cfg.Theme.Radius = float32(a.radiusF64)
+	}
+	cfgPath := a.cfgPath
+	if cfgPath == "" {
+		cfgPath = "config.json"
+	}
+	if err := a.cfg.Save(cfgPath); err != nil {
+		a.showToast("Save Error", err.Error(), "error")
+	} else {
+		a.showToast("Settings Saved", "Preferences updated in "+filepath.Base(cfgPath), "success")
+	}
+}
+
+// resetSettingsToDefault restores all options to initial factory defaults.
+func (a *app) resetSettingsToDefault() {
+	a.cfg = config.Default()
+	a.outDir = a.cfg.DefaultDownloadLocation
+	a.radiusF64 = float64(a.cfg.Theme.Radius)
+	a.workersF64 = float64(a.cfg.Workers)
+	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
+	a.delayStr = a.cfg.Delay.String()
+	a.timeoutStr = a.cfg.PerVideoTimeout.String()
+	a.showToast("Reset Defaults", "All settings restored to defaults", "info")
 }
 
 // spacingLabel / spacingUnit map the theme spacing unit (plan §3: 3 compact,
