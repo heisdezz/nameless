@@ -188,3 +188,32 @@ func TestOpenFolderUI(t *testing.T) {
 		t.Fatalf("expected clipboard %q, got %q", expectedFolder, tt.Clipboard())
 	}
 }
+
+func TestMinWindowResize(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
+
+	// 1. Main screen at minimum bounds 360x280
+	ttMain := ui.NewTester(a.view, 360, 280)
+	if !ttMain.HasText("nameless") || !ttMain.HasText("Fetch profile") {
+		t.Fatalf("main screen missing essential text at 360x280: %v", ttMain.Texts())
+	}
+
+	// 2. Profile screen at minimum bounds 360x280 with long titles and actions
+	vids := []video{
+		{id: 1, title: "A very long video title that might squeeze layout on small windows", status: "done", path: "/tmp/vid1.mp4"},
+		{id: 2, title: "Second video", status: "pending"},
+	}
+	a.applyProfile(profile{id: 1, name: "myprofile"}, vids)
+	ttProfile := ui.NewTester(a.view, 360, 280)
+	if !ttProfile.HasText("myprofile") || !ttProfile.HasText("Download all") || !ttProfile.HasText("Open folder") {
+		t.Fatalf("profile screen missing essential text at 360x280: %v", ttProfile.Texts())
+	}
+
+	// 3. Settings screen at minimum bounds 360x280
+	a.enterSettings()
+	ttSettings := ui.NewTester(a.view, 360, 280)
+	if !ttSettings.HasText("Settings") {
+		t.Fatalf("settings screen missing 'Settings' at 360x280: %v", ttSettings.Texts())
+	}
+}

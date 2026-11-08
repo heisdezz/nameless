@@ -8,69 +8,71 @@ import (
 
 func (a *app) viewProfile(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Gap(12).Padding(20).Children(func() {
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			if ui.Button(c, "← Back").Clicked() {
-				a.screen = screenMain
-			}
-			if a.currentProfile != nil {
-				ui.Text(c, a.currentProfile.name).FontSize(20).Bold()
-			}
-		})
-		ui.Row(c).Gap(10).Children(func() {
-			if ui.PrimaryButton(c, "Download all").Clicked() {
-				a.startDownload()
-			}
-			if a.downloading {
-				if a.paused {
-					if ui.Button(c, "Resume").Clicked() {
-						a.setPaused(false)
-					}
-				} else {
-					if ui.Button(c, "Pause").Clicked() {
-						a.setPaused(true)
-					}
+	ui.Scroll(c).Fill().Children(func() {
+		ui.Column(c).Fill().Gap(12).Padding(16).Children(func() {
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, "← Back").Clicked() {
+					a.screen = screenMain
 				}
-			}
-			if ui.Button(c, "Retry failed").Clicked() {
-				a.retryFailed()
-			}
-		})
-		if summary, complete, hasFailed := videoSummary(a.videos); summary != "" {
-			color := t.TextMuted
-			if complete {
-				if hasFailed {
-					color = t.Danger
-				} else {
-					color = t.Success
-				}
-			}
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, summary).TextColor(color).Bold().FontSize(13)
-				if complete && !hasFailed {
-					if ui.Button(c, "Open output folder").Clicked() {
-						a.openFolder(c, a.effectiveOutputDir())
-					}
+				if a.currentProfile != nil {
+					ui.Text(c, a.currentProfile.name).FontSize(18).Bold()
 				}
 			})
-		}
-		for i := range a.videos {
-			v := a.videos[i]
-			c.Key(v.id)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, v.title).FontSize(13)
-				ui.Text(c, v.status).TextColor(t.TextMuted).FontSize(12)
-				if v.status == "done" {
-					if ui.Button(c, "Open folder").Clicked() {
-						target := v.path
-						if target == "" {
-							target = a.effectiveOutputDir()
+				if ui.PrimaryButton(c, "Download all").Clicked() {
+					a.startDownload()
+				}
+				if a.downloading {
+					if a.paused {
+						if ui.Button(c, "Resume").Clicked() {
+							a.setPaused(false)
 						}
-						a.openFolder(c, target)
+					} else {
+						if ui.Button(c, "Pause").Clicked() {
+							a.setPaused(true)
+						}
 					}
 				}
+				if ui.Button(c, "Retry failed").Clicked() {
+					a.retryFailed()
+				}
 			})
-		}
+			if summary, complete, hasFailed := videoSummary(a.videos); summary != "" {
+				color := t.TextMuted
+				if complete {
+					if hasFailed {
+						color = t.Danger
+					} else {
+						color = t.Success
+					}
+				}
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, summary).TextColor(color).Bold().FontSize(13)
+					if complete && !hasFailed {
+						if ui.Button(c, "Open output folder").Clicked() {
+							a.openFolder(c, a.effectiveOutputDir())
+						}
+					}
+				})
+			}
+			for i := range a.videos {
+				v := a.videos[i]
+				c.Key(v.id)
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, v.title).FontSize(13)
+					ui.Text(c, v.status).TextColor(t.TextMuted).FontSize(12)
+					if v.status == "done" {
+						if ui.Button(c, "Open folder").Clicked() {
+							target := v.path
+							if target == "" {
+								target = a.effectiveOutputDir()
+							}
+							a.openFolder(c, target)
+						}
+					}
+				})
+			}
+		})
 	})
 }
 
