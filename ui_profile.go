@@ -11,24 +11,24 @@ import (
 func (a *app) viewProfilesList(c *ui.Context) {
 	t := c.Theme()
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Fill().Gap(16).Padding(16).Children(func() {
+		ui.Column(c).Fill().Gap(16).Padding(24).Children(func() {
 			// Page Header
 			ui.Row(c).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 				ui.Column(c).Gap(2).Children(func() {
-					ui.Text(c, "Archived Profiles").FontSize(22).Bold()
+					ui.Text(c, "Archived Profiles").FontSize(20).Bold()
 					ui.Text(c, fmt.Sprintf("%d creator profiles saved", len(a.profiles))).TextColor(t.TextMuted).FontSize(13)
 				})
-				if ui.PrimaryButton(c.Key("new-profile-btn"), "+ New Download").Radius(12).Clicked() {
+				if ui.PrimaryButton(c.Key("new-profile-btn"), "+ New Download").Radius(6).Clicked() {
 					a.screen = screenMain
 				}
 			})
 
 			// Empty State
 			if len(a.profiles) == 0 {
-				ui.Column(c).FillWidth().Padding(32).Gap(12).Radius(18).Background(t.Surface).Center().Children(func() {
-					ui.Text(c, "No profiles archived yet").Bold().FontSize(16)
+				ui.Column(c).FillWidth().Padding(32).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Center().Children(func() {
+					ui.Text(c, "No profiles archived yet").Bold().FontSize(15)
 					ui.Text(c, "Paste a TikTok creator profile URL on the Home screen to fetch and download videos.").TextColor(t.TextMuted).FontSize(13)
-					if ui.PrimaryButton(c.Key("empty-fetch-btn"), "Fetch your first profile").Radius(12).Clicked() {
+					if ui.PrimaryButton(c.Key("empty-fetch-btn"), "Fetch your first profile").Radius(6).Clicked() {
 						a.screen = screenMain
 					}
 				})
@@ -39,25 +39,25 @@ func (a *app) viewProfilesList(c *ui.Context) {
 			for i := range a.profiles {
 				p := a.profiles[i]
 				c.Key(fmt.Sprintf("prof-card-%d", p.id))
-				ui.Row(c).FillWidth().Padding(16).Gap(14).Radius(16).Background(t.Surface).AlignItems(ui.Center).Children(func() {
-					// Icon / Avatar Placeholder
-					ui.Column(c).Size(40, 40).Center().Radius(12).Background(t.SurfaceHover).Children(func() {
-						ui.Icon(c, iconFolder).Size(20, 20).TextColor(t.Accent)
+				ui.Row(c).FillWidth().Padding(14).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Children(func() {
+					// Icon Placeholder
+					ui.Column(c).Size(36, 36).Center().Radius(6).Background(t.SurfaceHover).Children(func() {
+						ui.Icon(c, iconFolder).Size(18, 18).TextColor(t.Text)
 					})
 
 					// Profile Info
-					ui.Column(c).Fill().Gap(4).Children(func() {
-						ui.Text(c, p.name).Bold().FontSize(15)
+					ui.Column(c).Fill().Gap(2).Children(func() {
+						ui.Text(c, p.name).Bold().FontSize(14)
 						ui.Text(c, p.url).TextColor(t.TextMuted).FontSize(12)
 					})
 
 					// Actions
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						if ui.Button(c.Key(fmt.Sprintf("open-folder-%d", p.id)), "Open folder").Radius(10).Clicked() {
+						if ui.Button(c.Key(fmt.Sprintf("open-folder-%d", p.id)), "Open folder").Radius(6).Clicked() {
 							folder := filepath.Join(a.effectiveOutputDir(), p.name)
 							a.openFolder(c, folder)
 						}
-						if ui.PrimaryButton(c.Key(fmt.Sprintf("view-vids-%d", p.id)), "View Videos").Radius(10).Clicked() {
+						if ui.PrimaryButton(c.Key(fmt.Sprintf("view-vids-%d", p.id)), "View Videos").Radius(6).Clicked() {
 							a.openProfile(p)
 						}
 					})
@@ -77,19 +77,19 @@ func (a *app) viewProfile(c *ui.Context) {
 	}
 
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Fill().Gap(14).Padding(16).Children(func() {
+		ui.Column(c).Fill().Gap(14).Padding(24).Children(func() {
 			// Navigation Breadcrumb / Back button to Profiles page
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				if ui.Button(c.Key("back-to-profiles"), "← All Profiles").Radius(10).Clicked() {
+				if ui.Button(c.Key("back-to-profiles"), "← All Profiles").Radius(6).Clicked() {
 					a.screen = screenProfilesList
 				}
 			})
 
-			// Hero Profile Header Card
+			// Profile Header Card
 			if a.currentProfile != nil {
-				ui.Column(c).FillWidth().Padding(20).Gap(12).Radius(20).Background(t.Surface).Children(func() {
+				ui.Column(c).FillWidth().Padding(16).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 					ui.Row(c).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-						ui.Text(c, a.currentProfile.name).FontSize(22).Bold()
+						ui.Text(c, a.currentProfile.name).FontSize(20).Bold()
 						if summary, complete, hasFailed := videoSummary(a.videos); summary != "" {
 							color := t.TextMuted
 							if complete {
@@ -102,7 +102,7 @@ func (a *app) viewProfile(c *ui.Context) {
 							ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 								ui.Text(c, summary).TextColor(color).Bold().FontSize(13)
 								if complete && !hasFailed {
-									if ui.Button(c, "Open output folder").Radius(10).Clicked() {
+									if ui.Button(c, "Open output folder").Radius(6).Clicked() {
 										a.openFolder(c, a.effectiveOutputDir())
 									}
 								}
@@ -112,22 +112,22 @@ func (a *app) viewProfile(c *ui.Context) {
 					ui.Text(c, a.currentProfile.url).TextColor(t.TextMuted).FontSize(12)
 
 					// Action Toolbar
-					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-						if ui.PrimaryButton(c, "Download all").Radius(12).Clicked() {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						if ui.PrimaryButton(c, "Download all").Radius(6).Clicked() {
 							a.startDownload()
 						}
 						if a.downloading {
 							if a.paused {
-								if ui.Button(c, "Resume").Radius(12).Clicked() {
+								if ui.Button(c, "Resume").Radius(6).Clicked() {
 									a.setPaused(false)
 								}
 							} else {
-								if ui.Button(c, "Pause").Radius(12).Clicked() {
+								if ui.Button(c, "Pause").Radius(6).Clicked() {
 									a.setPaused(true)
 								}
 							}
 						}
-						if ui.Button(c, "Retry failed").Radius(12).Clicked() {
+						if ui.Button(c, "Retry failed").Radius(6).Clicked() {
 							a.retryFailed()
 						}
 					})
@@ -136,7 +136,7 @@ func (a *app) viewProfile(c *ui.Context) {
 
 			// Videos Section Header
 			ui.Row(c).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-				ui.Text(c, "Videos").Bold().FontSize(16)
+				ui.Text(c, "Videos").Bold().FontSize(15)
 				ui.Text(c, fmt.Sprintf("%d items", len(a.videos))).TextColor(t.TextMuted).FontSize(12)
 			})
 
@@ -148,13 +148,13 @@ func (a *app) viewProfile(c *ui.Context) {
 			for i := range a.videos {
 				v := a.videos[i]
 				c.Key(v.id)
-				ui.Row(c).FillWidth().Padding(12).Gap(10).Radius(14).Background(t.Surface).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).FillWidth().Padding(10).Gap(10).Radius(6).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Children(func() {
 					ui.Column(c).Fill().Gap(2).Children(func() {
 						ui.Text(c, v.title).FontSize(13).Bold()
 						ui.Text(c, v.status).TextColor(t.TextMuted).FontSize(11)
 					})
 					if v.status == "done" {
-						if ui.Button(c, "Open folder").Radius(8).Clicked() {
+						if ui.Button(c, "Open folder").Radius(6).Clicked() {
 							target := v.path
 							if target == "" {
 								target = a.effectiveOutputDir()

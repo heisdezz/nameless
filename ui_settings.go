@@ -7,16 +7,16 @@ import (
 func (a *app) viewSettings(c *ui.Context) {
 	t := c.Theme()
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Fill().Gap(16).Padding(20).Children(func() {
+		ui.Column(c).Fill().Gap(16).Padding(24).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				if ui.Button(c, "← Back").Clicked() {
+				if ui.Button(c, "← Back").Radius(6).Clicked() {
 					a.screen = screenMain
 				}
-				ui.Text(c, "Settings").FontSize(22).Bold()
+				ui.Text(c, "Settings").FontSize(20).Bold()
 			})
 
 			// Download & Engine Settings Card
-			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(18).Background(t.Surface).Children(func() {
+			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 				ui.Text(c, "Download & Engine Settings").Bold().FontSize(14)
 				ui.Text(c, "Configure default download location, concurrency workers, and timeouts.").TextColor(t.TextMuted).FontSize(12)
 
@@ -26,7 +26,7 @@ func (a *app) viewSettings(c *ui.Context) {
 			})
 
 			// Authentication Card
-			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(18).Background(t.Surface).Children(func() {
+			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 				ui.Text(c, "TikTok Authentication").Bold().FontSize(14)
 				ui.Text(c, "Used when archiving private or age-restricted TikTok accounts.").TextColor(t.TextMuted).FontSize(12)
 
@@ -35,7 +35,7 @@ func (a *app) viewSettings(c *ui.Context) {
 			})
 
 			// Theme & Appearance Card
-			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(18).Background(t.Surface).Children(func() {
+			ui.Column(c).FillWidth().Padding(16).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 				ui.Text(c, "Theme & Appearance").Bold().FontSize(14)
 				ui.Text(c, "Accent color, spacing, and corner radius are applied on next build.").TextColor(t.TextMuted).FontSize(12)
 
