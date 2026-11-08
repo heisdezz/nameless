@@ -72,6 +72,11 @@ type app struct {
 	spacingSel string
 	delayStr   string
 	timeoutStr string
+
+	// yt-dlp detection state for the Settings screen (WS-D); ytdlpVersion
+	// is filled by a background Detect and shown via win.Update.
+	ytdlpVersion string
+	detecting    bool
 }
 
 func defaultConfig() *config.Config {
@@ -89,13 +94,38 @@ func defaultConfig() *config.Config {
 }
 
 // enterSettings prepares the settings bindings before the screen is shown.
-// WS-D may extend it (e.g. spacingSel) when the full settings UI lands.
 func (a *app) enterSettings() {
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
 	a.workersF64 = float64(a.cfg.Workers)
+	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
 	a.screen = screenSettings
+}
+
+// spacingLabel / spacingUnit map the theme spacing unit (plan §3: 3 compact,
+// 4 default, 5 roomy) to the Settings select labels. WS-D consumes these in
+// ui_settings.go (contract change log 2026-11-08).
+func spacingLabel(unit float32) string {
+	switch unit {
+	case 3:
+		return "Compact"
+	case 5:
+		return "Roomy"
+	default:
+		return "Default"
+	}
+}
+
+func spacingUnit(label string) float32 {
+	switch label {
+	case "Compact":
+		return 3
+	case "Roomy":
+		return 5
+	default:
+		return 4
+	}
 }
 
 func (a *app) initDB() {
