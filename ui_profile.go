@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// viewProfilesList renders the dedicated Profiles overview page.
+// viewProfilesList renders the dedicated Profiles overview page in a grid with cards.
 func (a *app) viewProfilesList(c *ui.Context) {
 	t := c.Theme()
 	ui.Scroll(c).Fill().Children(func() {
@@ -26,6 +27,7 @@ func (a *app) viewProfilesList(c *ui.Context) {
 			// Empty State
 			if len(a.profiles) == 0 {
 				ui.Column(c).FillWidth().Padding(32).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Center().Children(func() {
+					ui.Icon(c, iconFolder).Size(28, 28).TextColor(t.TextMuted)
 					ui.Text(c, "No profiles archived yet").Bold().FontSize(15)
 					ui.Text(c, "Paste a TikTok creator profile URL on the Home screen to fetch and download videos.").TextColor(t.TextMuted).FontSize(13)
 					if ui.PrimaryButton(c.Key("empty-fetch-btn"), "Fetch your first profile").Radius(6).Clicked() {
@@ -35,34 +37,54 @@ func (a *app) viewProfilesList(c *ui.Context) {
 				return
 			}
 
-			// Profiles Cards Grid/List
-			for i := range a.profiles {
-				p := a.profiles[i]
-				c.Key(fmt.Sprintf("prof-card-%d", p.id))
-				ui.Row(c).FillWidth().Padding(14).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Children(func() {
-					// Icon Placeholder
-					ui.Column(c).Size(36, 36).Center().Radius(6).Background(t.SurfaceHover).Children(func() {
-						ui.Icon(c, iconFolder).Size(18, 18).TextColor(t.Text)
-					})
+			// Profiles Cards Grid
+			ui.Grid(c).Columns(2).Gap(14).Children(func() {
+				for i := range a.profiles {
+					p := a.profiles[i]
+					c.Key(fmt.Sprintf("prof-card-%d", p.id))
+					cardImg := a.profileImage(p)
 
-					// Profile Info
-					ui.Column(c).Fill().Gap(2).Children(func() {
-						ui.Text(c, p.name).Bold().FontSize(14)
-						ui.Text(c, p.url).TextColor(t.TextMuted).FontSize(12)
-					})
+					ui.Column(c).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
+						// 1. Top Card Image (cardImage)
+						if cardImg != nil {
+							ui.Image(c, cardImg).FillWidth().Height(120).Fit(ui.Cover)
+						} else {
+							// Sleek placeholder card image banner
+							ui.Column(c).FillWidth().Height(120).Background(t.SurfaceHover).Center().Children(func() {
+								initial := "P"
+								runes := []rune(p.name)
+								if len(runes) > 0 {
+									initial = strings.ToUpper(string(runes[0]))
+								}
+								ui.Column(c).Size(40, 40).Center().Radius(20).Background(t.Border).Children(func() {
+									ui.Text(c, initial).FontSize(16).Bold().TextColor(t.Text)
+								})
+							})
+						}
 
-					// Actions
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						if ui.Button(c.Key(fmt.Sprintf("open-folder-%d", p.id)), "Open folder").Radius(6).Clicked() {
-							folder := filepath.Join(a.effectiveOutputDir(), p.name)
-							a.openFolder(c, folder)
-						}
-						if ui.PrimaryButton(c.Key(fmt.Sprintf("view-vids-%d", p.id)), "View Videos").Radius(6).Clicked() {
-							a.openProfile(p)
-						}
+						// 2. Card Content & Metadata
+						ui.Column(c).Padding(12).Gap(8).FillWidth().Children(func() {
+							ui.Column(c).Gap(2).FillWidth().Children(func() {
+								ui.Text(c, p.name).Bold().FontSize(14)
+								ui.Text(c, p.url).TextColor(t.TextMuted).FontSize(11)
+							})
+
+							ui.Box(c).Height(1).FillWidth().Background(t.Border)
+
+							// 3. Card Actions
+							ui.Column(c).FillWidth().Gap(6).Children(func() {
+								if ui.PrimaryButton(c.Key(fmt.Sprintf("view-vids-%d", p.id)), "View Videos").FillWidth().Radius(6).Clicked() {
+									a.openProfile(p)
+								}
+								if ui.Button(c.Key(fmt.Sprintf("open-folder-%d", p.id)), "Open folder").FillWidth().Radius(6).Clicked() {
+									folder := filepath.Join(a.effectiveOutputDir(), p.name)
+									a.openFolder(c, folder)
+								}
+							})
+						})
 					})
-				})
-			}
+				}
+			})
 		})
 	})
 }

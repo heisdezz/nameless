@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -452,5 +453,67 @@ func TestShadcnSidebarFeatures(t *testing.T) {
 	// 5. Engine status in bottom card
 	if !ttClick.HasText("yt-dlp Ready") {
 		t.Fatalf("sidebar footer missing engine status: %v", ttClick.Texts())
+	}
+}
+
+
+func TestProfilesCardGridAndProfileImage(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpDB := filepath.Join(tmpDir, "prof_test.db")
+	db, err := sql.Open("sqlite", tmpDB)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+
+	// Create test png image file for avatar
+	pngData := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+		0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+		0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+		0x42, 0x60, 0x82,
+	}
+	avatarFile := filepath.Join(tmpDir, "avatar1.png")
+	if err := os.WriteFile(avatarFile, pngData, 0644); err != nil {
+		t.Fatalf("failed to write test avatar: %v", err)
+	}
+
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)")
+	db.Exec("INSERT INTO profiles(id, url, name, avatar_url, avatar_path) VALUES(1, 'https://tiktok.com/@creator1', 'creator1', 'https://cdn.example.com/a1.png', ?)", avatarFile)
+	db.Exec("INSERT INTO profiles(id, url, name, avatar_url, avatar_path) VALUES(2, 'https://tiktok.com/@creator2', 'creator2', '', '')")
+
+	a := &app{cfg: defaultConfig(), db: db, avatarsDir: tmpDir}
+	a.loadProfiles()
+
+	if len(a.profiles) != 2 {
+		t.Fatalf("expected 2 profiles loaded, got %d", len(a.profiles))
+	}
+	if a.profiles[0].avatarPath != avatarFile {
+		t.Fatalf("expected avatarPath %q, got %q", avatarFile, a.profiles[0].avatarPath)
+	}
+
+	// Verify image caching and decoding
+	img := a.profileImage(a.profiles[0])
+	if img == nil {
+		t.Fatalf("expected decoded ImageSource for profile 1")
+	}
+	if a.profileImage(a.profiles[1]) != nil {
+		t.Fatalf("expected nil ImageSource for profile 2 without avatarPath")
+	}
+
+	// Verify Profiles Page Grid UI
+	a.screen = screenProfilesList
+	tt := ui.NewTester(a.view, 640, 480)
+
+	if !tt.HasText("Archived Profiles") || !tt.HasText("creator1") || !tt.HasText("creator2") {
+		t.Fatalf("profiles grid missing headers or creator cards: %v", tt.Texts())
+	}
+	if !tt.HasText("View Videos") || !tt.HasText("Open folder") {
+		t.Fatalf("profiles card missing action buttons: %v", tt.Texts())
 	}
 }

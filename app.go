@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -36,9 +41,11 @@ type video struct {
 }
 
 type profile struct {
-	id   int64
-	url  string
-	name string
+	id         int64
+	url        string
+	name       string
+	avatarURL  string
+	avatarPath string
 }
 
 type toastInfo struct {
@@ -69,6 +76,8 @@ type app struct {
 	fetchErr   string
 	profiles   []profile
 	sidebarFilter string
+	imgCache      map[int64]ui.ImageSource
+	avatarsDir    string
 
 	// profile view
 	currentProfile *profile
@@ -241,6 +250,25 @@ func (a *app) recentDownloads(limit int) []video {
 }
 
 
+// profileImage returns the decoded ImageSource for a profile, or nil if unavailable.
+func (a *app) profileImage(p profile) ui.ImageSource {
+	if a.imgCache == nil {
+		a.imgCache = make(map[int64]ui.ImageSource)
+	}
+	if src, ok := a.imgCache[p.id]; ok {
+		return src
+	}
+	if p.avatarPath != "" {
+		if data, err := os.ReadFile(p.avatarPath); err == nil {
+			if src, err := ui.DecodeImage(data); err == nil {
+				a.imgCache[p.id] = src
+				return src
+			}
+		}
+	}
+	return nil
+}
+
 // enterSettings prepares the settings bindings before the screen is shown.
 func (a *app) enterSettings() {
 	if a.outDir == "" && a.cfg != nil {
@@ -281,20 +309,33 @@ func spacingUnit(label string) float32 {
 
 func (a *app) initDB() {
 	dir, _ := os.UserConfigDir()
-	path := filepath.Join(dir, "nameless", "data.db")
-	os.MkdirAll(filepath.Dir(path), 0755)
+	if dir == "" {
+		dir = "."
+	}
+	appDir := filepath.Join(dir, "nameless")
+	os.MkdirAll(appDir, 0755)
+	a.avatarsDir = filepath.Join(appDir, "avatars")
+	os.MkdirAll(a.avatarsDir, 0755)
+	path := filepath.Join(appDir, "data.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		log.Fatal(err)
 	}
 	a.db = db
-	db.Exec(`CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)`)
+	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_url TEXT`)
+	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_path TEXT`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)`)
 }
 
 // loadProfiles reads the profile list. UI thread only.
 func (a *app) loadProfiles() {
-	rows, err := a.db.Query("SELECT id,url,name FROM profiles")
+	if a.db == nil {
+		return
+	}
+	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_url TEXT")
+	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_path TEXT")
+	rows, err := a.db.Query("SELECT id,url,name,COALESCE(avatar_url, ''),COALESCE(avatar_path, '') FROM profiles")
 	if err != nil {
 		return
 	}
@@ -302,7 +343,7 @@ func (a *app) loadProfiles() {
 	a.profiles = nil
 	for rows.Next() {
 		var p profile
-		if err := rows.Scan(&p.id, &p.url, &p.name); err != nil {
+		if err := rows.Scan(&p.id, &p.url, &p.name, &p.avatarURL, &p.avatarPath); err != nil {
 			return
 		}
 		a.profiles = append(a.profiles, p)
@@ -335,6 +376,20 @@ func (a *app) applyProfile(p profile, vids []video) {
 	a.videos = vids
 }
 
+func parseProfileName(u string) string {
+	clean := strings.TrimRight(strings.TrimSpace(u), "/")
+	if idx := strings.LastIndex(clean, "/"); idx >= 0 {
+		sub := clean[idx+1:]
+		if sub != "" {
+			return sub
+		}
+	}
+	if len(clean) > 20 {
+		return clean[len(clean)-20:]
+	}
+	return clean
+}
+
 func (a *app) fetchProfile() {
 	if a.profileURL == "" {
 		a.fetchErr = "Enter a profile URL"
@@ -347,28 +402,123 @@ func (a *app) fetchProfile() {
 	a.fetching = true
 	a.fetchErr = ""
 	url := a.profileURL
+
 	go func() {
-		name := url
-		if len(name) > 20 {
-			name = name[len(name)-20:]
-		}
+		name := parseProfileName(url)
 		p := profile{url: url, name: name}
-		res, err := a.db.Exec("INSERT INTO profiles(url,name) VALUES(?,?)", p.url, p.name)
+
+		a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_url TEXT")
+		a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_path TEXT")
+
+		res, err := a.db.Exec("INSERT INTO profiles(url, name, avatar_url, avatar_path) VALUES(?, ?, '', '')", p.url, p.name)
 		if err != nil {
-			a.win.Update(func() {
+			updateFn := func() {
 				a.fetching = false
 				a.fetchErr = "Could not save profile: " + err.Error()
 				a.showToast("Fetch Error", a.fetchErr, "error")
-			})
+			}
+			if a.win != nil {
+				a.win.Update(updateFn)
+			} else {
+				updateFn()
+			}
 			return
 		}
 		p.id, _ = res.LastInsertId()
-		vids := a.loadVideos(p.id) // DB read off the UI thread
-		a.win.Update(func() {
+
+		// Metadata & Profile Image Fetch via yt-dlp
+		var avatarURL string
+		var avatarPath string
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", "--playlist-items", "1", url)
+		out, err := cmd.Output()
+		if err == nil && len(out) > 0 {
+			var meta struct {
+				Title      string `json:"title"`
+				Uploader   string `json:"uploader"`
+				Thumbnail  string `json:"thumbnail"`
+				Thumbnails []struct {
+					URL string `json:"url"`
+				} `json:"thumbnails"`
+				Entries []struct {
+					Title      string `json:"title"`
+					Thumbnails []struct {
+						URL string `json:"url"`
+					} `json:"thumbnails"`
+				} `json:"entries"`
+			}
+			if json.Unmarshal(out, &meta) == nil {
+				if meta.Title != "" {
+					p.name = meta.Title
+				} else if meta.Uploader != "" {
+					p.name = meta.Uploader
+				}
+				if meta.Thumbnail != "" {
+					avatarURL = meta.Thumbnail
+				} else if len(meta.Thumbnails) > 0 && meta.Thumbnails[0].URL != "" {
+					avatarURL = meta.Thumbnails[0].URL
+				} else if len(meta.Entries) > 0 && len(meta.Entries[0].Thumbnails) > 0 {
+					avatarURL = meta.Entries[0].Thumbnails[0].URL
+				}
+			}
+		}
+
+		if avatarURL != "" {
+			p.avatarURL = avatarURL
+			avatarsDir := a.avatarsDir
+			if avatarsDir == "" {
+				dir, _ := os.UserConfigDir()
+				if dir == "" {
+					dir = "."
+				}
+				avatarsDir = filepath.Join(dir, "nameless", "avatars")
+			}
+			os.MkdirAll(avatarsDir, 0755)
+			destFile := filepath.Join(avatarsDir, fmt.Sprintf("profile_%d.jpg", p.id))
+			req, rerr := http.NewRequestWithContext(ctx, "GET", avatarURL, nil)
+			if rerr == nil {
+				client := &http.Client{Timeout: 10 * time.Second}
+				resp, derr := client.Do(req)
+				if derr == nil && resp.StatusCode == http.StatusOK {
+					imgData, rerr2 := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					if rerr2 == nil && len(imgData) > 0 {
+						if os.WriteFile(destFile, imgData, 0644) == nil {
+							avatarPath = destFile
+							p.avatarPath = avatarPath
+						}
+					}
+				}
+			}
+		}
+
+		a.db.Exec("UPDATE profiles SET name=?, avatar_url=?, avatar_path=? WHERE id=?", p.name, p.avatarURL, p.avatarPath, p.id)
+
+		vids := a.loadVideos(p.id)
+		doneFn := func() {
 			a.fetching = false
+			if p.avatarPath != "" {
+				if data, err := os.ReadFile(p.avatarPath); err == nil {
+					if src, err := ui.DecodeImage(data); err == nil {
+						if a.imgCache == nil {
+							a.imgCache = make(map[int64]ui.ImageSource)
+						}
+						a.imgCache[p.id] = src
+					}
+				}
+			}
 			a.profiles = append(a.profiles, p)
 			a.applyProfile(p, vids)
-		})
+			a.showToast("Profile Fetched", fmt.Sprintf("Loaded profile %s", p.name), "success")
+		}
+
+		if a.win != nil {
+			a.win.Update(doneFn)
+		} else {
+			doneFn()
+		}
 	}()
 }
 
