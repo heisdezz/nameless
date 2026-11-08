@@ -47,13 +47,28 @@ func (a *app) viewProfile(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, summary).TextColor(color).Bold().FontSize(13)
+				if complete && !hasFailed {
+					if ui.Button(c, "Open output folder").Clicked() {
+						a.openFolder(c, a.effectiveOutputDir())
+					}
+				}
 			})
 		}
 		for i := range a.videos {
 			v := a.videos[i]
+			c.Key(v.id)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, v.title).FontSize(13)
 				ui.Text(c, v.status).TextColor(t.TextMuted).FontSize(12)
+				if v.status == "done" {
+					if ui.Button(c, "Open folder").Clicked() {
+						target := v.path
+						if target == "" {
+							target = a.effectiveOutputDir()
+						}
+						a.openFolder(c, target)
+					}
+				}
 			})
 		}
 	})

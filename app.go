@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,13 +49,15 @@ type toastInfo struct {
 type app struct {
 	// mu guards the pause flag shared between the UI thread and the interim
 	// download worker; cond wakes the worker on resume. All other state is
-	// mutated only on the UI thread (view actions and win.Update closures).
-	mu   sync.Mutex
-	cond *sync.Cond
+	// strictly UI-thread only.
+	mu     sync.Mutex
+	cond   *sync.Cond
+	win    *mygo.Window
+	db     *sql.DB
+	screen screen
 
-	db      *sql.DB
-	win     *mygo.Window
-	screen  screen
+	// persistent config loaded from config.json (or defaults if missing/corrupt).
+	// Theme values are applied via c.SetTheme on each view pass.
 	cfg     *config.Config
 	cfgPath string
 
@@ -113,6 +116,72 @@ func (a *app) showToast(title, desc string, toastType string) {
 	if a.win != nil {
 		a.win.Update(func() {})
 	}
+}
+
+// effectiveOutputDir returns the resolved output directory: the active
+// text input if set, otherwise the configured DefaultDownloadLocation,
+// falling back to "./downloads".
+func (a *app) effectiveOutputDir() string {
+	if a.outDir != "" {
+		return a.outDir
+	}
+	if a.cfg != nil && a.cfg.DefaultDownloadLocation != "" {
+		return a.cfg.DefaultDownloadLocation
+	}
+	return "./downloads"
+}
+
+// openFolder opens the given file or directory in the system file manager
+// via c.Services().OpenURL, copies the resolved directory path to the
+// clipboard, and shows an informational toast.
+func (a *app) openFolder(c *ui.Context, target string) {
+	if target == "" {
+		target = a.effectiveOutputDir()
+	}
+	dir := resolveFolder(target)
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		dir = abs
+	}
+	u := folderURL(dir)
+	c.Services().OpenURL(u)
+	c.Services().WriteClipboard(dir)
+	a.showToast("Opened folder", dir, "info")
+}
+
+// resolveFolder returns the enclosing directory if target is a file or
+// path with a file extension, otherwise target itself.
+func resolveFolder(target string) string {
+	if target == "" {
+		return "."
+	}
+	fi, err := os.Stat(target)
+	if err == nil {
+		if !fi.IsDir() {
+			return filepath.Dir(target)
+		}
+		return target
+	}
+	if filepath.Ext(target) != "" {
+		return filepath.Dir(target)
+	}
+	return target
+}
+
+// folderURL formats a file path into a file:// URL.
+func folderURL(dir string) string {
+	if dir == "" {
+		dir = "."
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	slash := filepath.ToSlash(abs)
+	if !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	return "file://" + slash
 }
 
 // enterSettings prepares the settings bindings before the screen is shown.
@@ -265,8 +334,9 @@ func (a *app) startDownload() {
 			id := vids[i].id
 			a.win.Update(func() { a.setVideoStatus(id, "downloading") })
 			// simulate yt-dlp download (replaced by internal/queue in M3)
-			a.db.Exec("UPDATE videos SET status=? WHERE id=?", "done", id)
-			a.win.Update(func() { a.setVideoStatus(id, "done") })
+			p := filepath.Join(a.effectiveOutputDir(), fmt.Sprintf("video_%d.mp4", id))
+			a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", p, id)
+			a.win.Update(func() { a.setVideoDone(id, p) })
 		}
 		a.win.Update(func() {
 			a.downloading = false
@@ -291,6 +361,17 @@ func (a *app) setVideoStatus(id int64, status string) {
 			if status == "failed" {
 				a.showToast("Download Failed", a.videos[i].title, "error")
 			}
+			return
+		}
+	}
+}
+
+// setVideoDone marks a video done and sets its final downloaded path. UI thread only.
+func (a *app) setVideoDone(id int64, path string) {
+	for i := range a.videos {
+		if a.videos[i].id == id {
+			a.videos[i].status = "done"
+			a.videos[i].path = path
 			return
 		}
 	}
@@ -337,7 +418,11 @@ func main() {
 	if err != nil || cfg == nil {
 		cfg = defaultConfig() // skeleton/internal error: run on defaults (plan §3)
 	}
-	a := &app{cfg: cfg, cfgPath: cfgPath}
+	outDir := ""
+	if cfg != nil {
+		outDir = cfg.DefaultDownloadLocation
+	}
+	a := &app{cfg: cfg, cfgPath: cfgPath, outDir: outDir}
 	a.initDB()
 	a.loadProfiles()
 

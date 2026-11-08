@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +102,89 @@ func TestToastNotification(t *testing.T) {
 	// Toast title/description should be rendered by mygo toast viewport
 	if !tt.HasText("Network Error") {
 		t.Errorf("expected toast 'Network Error' in texts %q", tt.Texts())
+	}
+}
+
+func TestOpenFolderHelpers(t *testing.T) {
+	// folderURL
+	u := folderURL("/tmp/myfolder")
+	if !strings.HasPrefix(u, "file://") || !strings.Contains(u, "/tmp/myfolder") {
+		t.Fatalf("unexpected folderURL %q", u)
+	}
+
+	// resolveFolder on file-like path vs dir path
+	dir := resolveFolder("/tmp/folder/video.mp4")
+	if dir != "/tmp/folder" {
+		t.Fatalf("expected /tmp/folder, got %q", dir)
+	}
+
+	// resolveFolder on empty
+	dirEmpty := resolveFolder("")
+	if dirEmpty != "." {
+		t.Fatalf("expected ., got %q", dirEmpty)
+	}
+}
+
+func TestOpenFolderUI(t *testing.T) {
+	tmpDir := t.TempDir()
+	sampleVideo := filepath.Join(tmpDir, "vid1.mp4")
+
+	vids := []video{
+		{id: 1, title: "vid1", status: "done", path: sampleVideo},
+		{id: 2, title: "vid2", status: "pending"},
+	}
+
+	a := &app{cfg: defaultConfig(), outDir: tmpDir}
+	a.applyProfile(profile{id: 1, name: "myprofile"}, vids)
+
+	tt := ui.NewTester(a.view, 480, 360)
+
+	// Since only 1 video is done (not all), per-row button exists, but after-success button does not
+	if !tt.HasText("Open folder") {
+		t.Fatalf("expected 'Open folder' button on done video row, got texts %q", tt.Texts())
+	}
+	if tt.HasText("Open output folder") {
+		t.Fatalf("did not expect 'Open output folder' before all videos are done")
+	}
+
+	// Click row "Open folder"
+	if err := tt.Click("Open folder"); err != nil {
+		t.Fatalf("failed to click 'Open folder': %v", err)
+	}
+
+	opened := tt.OpenedURLs()
+	if len(opened) == 0 {
+		t.Fatalf("expected OpenedURLs to contain folder URL, got none")
+	}
+	expectedFolder, _ := filepath.Abs(tmpDir)
+	if !strings.HasPrefix(opened[0], "file://") || !strings.Contains(opened[0], filepath.ToSlash(expectedFolder)) {
+		t.Fatalf("expected opened URL to contain %q, got %q", expectedFolder, opened[0])
+	}
+	if tt.Clipboard() != expectedFolder {
+		t.Fatalf("expected clipboard %q, got %q", expectedFolder, tt.Clipboard())
+	}
+
+	// Now mark all videos done to verify after-success "Open output folder" button
+	a.videos[1].status = "done"
+	a.videos[1].path = filepath.Join(tmpDir, "vid2.mp4")
+	tt = ui.NewTester(a.view, 480, 360)
+
+	if !tt.HasText("Open output folder") {
+		t.Fatalf("expected 'Open output folder' button on completion, got texts %q", tt.Texts())
+	}
+
+	if err := tt.Click("Open output folder"); err != nil {
+		t.Fatalf("failed to click 'Open output folder': %v", err)
+	}
+
+	openedAfter := tt.OpenedURLs()
+	if len(openedAfter) != 1 {
+		t.Fatalf("expected 1 OpenedURL on new tester, got %d", len(openedAfter))
+	}
+	if !strings.HasPrefix(openedAfter[0], "file://") || !strings.Contains(openedAfter[0], filepath.ToSlash(expectedFolder)) {
+		t.Fatalf("expected openedAfter URL to contain %q, got %q", expectedFolder, openedAfter[0])
+	}
+	if tt.Clipboard() != expectedFolder {
+		t.Fatalf("expected clipboard %q, got %q", expectedFolder, tt.Clipboard())
 	}
 }

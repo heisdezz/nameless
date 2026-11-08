@@ -86,14 +86,14 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 
 ## Milestone 4 — Polish
 
-| ID  | Task                                                                   | WS  | Status         | Agent       | Note                                                                                   |
-| --- | ---------------------------------------------------------------------- | --- | -------------- | ----------- | -------------------------------------------------------------------------------------- |
-| P-1 | Keyboard operability & focus order all screens                         | E   | —              |             |                                                                                        |
-| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | —              |             |                                                                                        |
-| P-3 | Toasts for transient errors; status summary line on completion         | E   | ✅ Done        | Antigravity | toasts queued on fetch/download events; summary line on completion; ui.NewTester tests |
-| P-4 | "Open folder" per row + after-success                                  | E   | 🚡 In progress | Antigravity |                                                                                        |
-| P-5 | Naming template setting in settings                                    | D   | —              |             |                                                                                        |
-| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | ✅ Done        | Antigravity | comprehensive README with yt-dlp install guides, build commands, and feature overview  |
+| ID  | Task                                                                   | WS  | Status  | Agent       | Note                                                                                                                     |
+| --- | ---------------------------------------------------------------------- | --- | ------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| P-1 | Keyboard operability & focus order all screens                         | E   | —       |             |                                                                                                                          |
+| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | —       |             |                                                                                                                          |
+| P-3 | Toasts for transient errors; status summary line on completion         | E   | ✅ Done | Antigravity | toasts queued on fetch/download events; summary line on completion; ui.NewTester tests                                   |
+| P-4 | "Open folder" per row + after-success                                  | E   | ✅ Done | Antigravity | "Open folder" on done rows + "Open output folder" after-success via c.Services().OpenURL & clipboard; ui.NewTester tests |
+| P-5 | Naming template setting in settings                                    | D   | —       |             |                                                                                                                          |
+| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | ✅ Done | Antigravity | comprehensive README with yt-dlp install guides, build commands, and feature overview                                    |
 
 ## Milestone 5 — Hardening & release
 
