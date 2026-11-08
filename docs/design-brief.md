@@ -28,5 +28,7 @@ URL input → fetch → video list with status → download with parallel progre
 ## Constraints
 Go + mygo (ebiten) desktop, SQLite backend, yt-dlp dependency, desktop/PC only. Customizable theme (colors/spacing/corners). No CSS — native draw calls.
 
+Reference: always check https://mygo.egoist.dev/docs/ui for mygo UI API and behavior when unsure.
+
 ## Open decisions
 Exact theme token defaults, settings persistence format, whether settings is separate window or in-app screen.

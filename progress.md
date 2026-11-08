@@ -29,9 +29,9 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 | ID  | Task                                                                                                                                                                                                                       | Status         | Agent         | Note                                                                                           |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------------- | ---------------------------------------------------------------------------------------------- |
 | E0  | Split `main.go` into `app.go`, `ui_main.go`, `ui_profile.go`, `ui_common.go`, `ui_settings.go` (no behavior change)                                                                                                        | ✅ Done        | prior session | adopted unclaimed split as-is; dispatcher lives in `ui_common.go`                              |
-| E1  | Fix races/leaks P2 P3 P4 P10 from plan §1 (busy-loop, unlocked mutations, double query, dangling pointer)                                                                                                                  | 🚡 In progress | E             |                                                                                                |
-| E2  | Create `internal/{config,store,ytdlp,queue,theme}` skeletons with §3 signatures (`not implemented` bodies) so all workstreams compile; align `app` struct with contracts (`cfg *config.Config`, settings mirrors for WS-D) | 🚡 In progress | E             |                                                                                                |
-| E3  | `git init`, `.gitignore` for `build/`, `*.db`, `downloads/`, root binary                                                                                                                                                   | 🚡 In progress | E             | `git init` was done by prior session (branch `master`); ignore list + first full commit remain |
+| E1 | Fix races/leaks P2 P3 P4 P10 from plan §1 | ✅ Done | E | sync.Cond pause gate; worker reports via `win.Update` closures on a snapshot; single query; profile by value |
+| E2 | Create `internal/{config,store,ytdlp,queue,theme}` skeletons with §3 signatures so all workstreams compile; align `app` struct with contracts | ✅ Done | E | gofmt/build/vet/tests/mygo-vet green; `-race` clean |
+| E3 | `git init`, `.gitignore` for `build/`, `*.db`, `downloads/`, root binary | ✅ Done | E | committed `312b193` (branch `master`) |
 
 ## Milestone 1 — Parallel workstreams (A ∥ B ∥ D)
 
@@ -78,22 +78,22 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 
 | ID  | Task                                                                                                         | Status | Agent | Note |
 | --- | ------------------------------------------------------------------------------------------------------------ | ------ | ----- | ---- |
-| E4  | Main screen: fetch flow (streamed upsert → navigate), spinner, error text, recent profiles                   | —      |       |      |
-| E5  | Missing-yt-dlp banner: Detect button + install-instructions `OpenURL`                                        | —      |       |      |
-| E6  | Profile screen: virtualized `ui.List`, per-row status/progress, Download all/Pause/Resume/Retry, overall bar | —      |       |      |
-| E7  | Event pump: `queue.Event` → store → `win.Update`                                                             | —      |       |      |
-| E8  | Resume-after-restart: `ResetInterrupted` on boot + empty-profile & first-run states                          | —      |       |      |
+| E4 | Main screen: fetch flow (streamed upsert → navigate), spinner, error text, recent profiles | ⏸ Blocked | E | blocked on A+B+C (M1/M2) |
+| E5 | Missing-yt-dlp banner: Detect button + install-instructions `OpenURL` | ⏸ Blocked | E | blocked on B1 |
+| E6 | Profile screen: virtualized `ui.List`, per-row status/progress, queue controls, overall bar | ⏸ Blocked | E | blocked on C |
+| E7 | Event pump: `queue.Event` → store → `win.Update` | ⏸ Blocked | E | blocked on C |
+| E8 | Resume-after-restart: `ResetInterrupted` on boot + empty-profile & first-run states | ⏸ Blocked | E | blocked on A3/A5 |
 
 ## Milestone 4 — Polish
 
-| ID  | Task                                                                   | WS  | Status         | Agent       | Note |
-| --- | ---------------------------------------------------------------------- | --- | -------------- | ----------- | ---- |
-| P-1 | Keyboard operability & focus order all screens                         | E   | —              |             |      |
-| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | —              |             |      |
-| P-3 | Toasts for transient errors; status summary line on completion         | E   | —              |             |      |
-| P-4 | "Open folder" per row + after-success                                  | E   | —              |             |      |
-| P-5 | Naming template setting in settings                                    | D   | —              |             |      |
-| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | 🚡 In progress | Antigravity |      |
+| ID  | Task                                                                   | WS  | Status  | Agent       | Note                                                                                  |
+| --- | ---------------------------------------------------------------------- | --- | ------- | ----------- | ------------------------------------------------------------------------------------- |
+| P-1 | Keyboard operability & focus order all screens                         | E   | —       |             |                                                                                       |
+| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | —       |             |                                                                                       |
+| P-3 | Toasts for transient errors; status summary line on completion         | E   | —       |             |                                                                                       |
+| P-4 | "Open folder" per row + after-success                                  | E   | —       |             |                                                                                       |
+| P-5 | Naming template setting in settings                                    | D   | —       |             |                                                                                       |
+| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | ✅ Done | Antigravity | comprehensive README with yt-dlp install guides, build commands, and feature overview |
 
 ## Milestone 5 — Hardening & release
 
