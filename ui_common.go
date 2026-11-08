@@ -3,6 +3,7 @@ package main
 import "github.com/egoist/mygo/ui"
 
 func (a *app) view(c *ui.Context) {
+	a.drainToasts(c)
 	switch a.screen {
 	case screenMain:
 		a.viewMain(c)
@@ -10,6 +11,21 @@ func (a *app) view(c *ui.Context) {
 		a.viewProfile(c)
 	case screenSettings:
 		a.viewSettings(c)
+	}
+}
+
+// drainToasts flushes queued transient notifications into the current frame.
+func (a *app) drainToasts(c *ui.Context) {
+	a.mu.Lock()
+	toasts := a.toasts
+	a.toasts = nil
+	a.mu.Unlock()
+	for _, t := range toasts {
+		c.AddToast(ui.Toast{
+			Title:       t.title,
+			Description: t.description,
+			Type:        t.toastType,
+		})
 	}
 }
 

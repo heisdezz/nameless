@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -34,6 +36,19 @@ func (a *app) viewProfile(c *ui.Context) {
 				a.retryFailed()
 			}
 		})
+		if summary, complete, hasFailed := videoSummary(a.videos); summary != "" {
+			color := t.TextMuted
+			if complete {
+				if hasFailed {
+					color = t.Danger
+				} else {
+					color = t.Success
+				}
+			}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, summary).TextColor(color).Bold().FontSize(13)
+			})
+		}
 		for i := range a.videos {
 			v := a.videos[i]
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -42,4 +57,33 @@ func (a *app) viewProfile(c *ui.Context) {
 			})
 		}
 	})
+}
+
+// videoSummary produces the status summary line (e.g. "42/42 downloaded")
+// per brief and plan §4.
+func videoSummary(videos []video) (summary string, complete bool, hasFailed bool) {
+	total := len(videos)
+	if total == 0 {
+		return "", false, false
+	}
+	done := 0
+	failed := 0
+	for _, v := range videos {
+		switch v.status {
+		case "done":
+			done++
+		case "failed":
+			failed++
+		}
+	}
+	if done == total {
+		return fmt.Sprintf("%d/%d downloaded", done, total), true, false
+	}
+	if done+failed == total && failed > 0 {
+		return fmt.Sprintf("%d/%d downloaded (%d failed)", done, total, failed), true, true
+	}
+	if done > 0 || failed > 0 {
+		return fmt.Sprintf("%d/%d downloaded", done, total), false, false
+	}
+	return "", false, false
 }
