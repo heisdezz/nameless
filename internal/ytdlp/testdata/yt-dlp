@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Stub yt-dlp binary that returns JSON profile data for testing."""
+
+import sys
+import json
+
+def main():
+    # Simulate yt-dlp --version
+    if len(sys.argv) > 1 and sys.argv[1] == "--version":
+        print("yt-dlp 2024.01.01")
+        sys.exit(0)
+    
+    # Simulate yt-dlp --flat-playlist -J
+    if len(sys.argv) > 1 and sys.argv[1] == "--flat-playlist" and len(sys.argv) > 2 and sys.argv[2] == "-J":
+        # Check if a video ID or URL is provided to determine what to return
+        url = sys.argv[3] if len(sys.argv) > 3 else ""
+        entries = []
+        if "tiktok.com/@test1" in url:
+            entries.append({"title": "Test Video 1", "id": "vid1", "url": "https://www.tiktok.com/video/1"})
+        if "tiktok.com/@test2" in url:
+            entries.append({"title": "Test Video 2", "id": "vid2", "url": "https://www.tiktok.com/video/2"})
+        if not entries:
+            entries.append({"title": "Sample Video", "id": "vid1", "url": "https://www.tiktok.com/video/sample"})
+        print(json.dumps({"entries": entries}))
+        sys.exit(0)
+    
+    # Simulate yt-dlp --dump-json
+    if len(sys.argv) > 1 and sys.argv[1] == "--dump-json":
+        url = sys.argv[2] if len(sys.argv) > 2 else ""
+        if "tiktok.com/@test1" in url:
+            print(json.dumps({
+                "title": "Test Video 1",
+                "id": "vid1",
+                "url": "https://www.tiktok.com/video/1",
+                "uploader": "Test User"
+            }))
+        elif "tiktok.com/@test2" in url:
+            print(json.dumps({
+                "title": "Test Video 2", 
+                "id": "vid2",
+                "url": "https://www.tiktok.com/video/2",
+                "uploader": "Test User 2"
+            }))
+        else:
+            print(json.dumps({
+                "title": "Sample Video",
+                "id": "vid1",
+                "url": "https://www.tiktok.com/video/sample",
+                "uploader": "Sample User"
+            }))
+        sys.exit(0)
+    
+    # Simulate yt-dlp --newline progress
+    if len(sys.argv) > 1 and sys.argv[1] == "--newline":
+        import time
+        # Output progress lines
+        print("Download Percentage: 0.0%", flush=True)
+        time.sleep(0.5)
+        print("Download Percentage: 50.0%", flush=True)
+        time.sleep(0.5)
+        print("Download Percentage: 100.0%", flush=True)
+        sys.exit(0)
+    
+    print("Stub yt-dlp", file=sys.stderr)
+
+if __name__ == "__main__":
+    main()

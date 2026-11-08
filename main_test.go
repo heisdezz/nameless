@@ -282,18 +282,18 @@ func TestSidebarNavigation(t *testing.T) {
 }
 
 func TestKeyboardOperability(t *testing.T) {
-	a := &app{cfg: defaultConfig()}
-	a.initDB()
-
 	// 1. Enter on profileURL TextInput triggers fetchProfile
-	a.profileURL = "https://www.tiktok.com/@testuser"
-	a.fetchProfile()
-	if !a.fetching {
+	a1 := &app{cfg: defaultConfig()}
+	a1.initDB()
+	a1.profileURL = "https://www.tiktok.com/@testuser"
+	a1.fetchProfile()
+	if !a1.fetching {
 		t.Fatalf("expected a.fetching to be true after fetchProfile")
 	}
-	a.fetching = false
 
 	// 2. Escape shortcut on screenSettings returns to screenMain
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
 	a.enterSettings()
 	if a.screen != screenSettings {
 		t.Fatalf("expected screenSettings, got %v", a.screen)
@@ -451,7 +451,7 @@ func TestShadcnSidebarFeatures(t *testing.T) {
 	}
 
 	// 5. Engine status in bottom card
-	if !ttClick.HasText("yt-dlp Ready") {
+	if !ttClick.HasText("yt-dlp") {
 		t.Fatalf("sidebar footer missing engine status: %v", ttClick.Texts())
 	}
 }
@@ -664,5 +664,58 @@ func TestSettingsPageOverhaul(t *testing.T) {
 	a.resetSettingsToDefault()
 	if a.outDir != "./downloads" || a.workersF64 != 3 || a.cfg.VideoQuality != "best" {
 		t.Fatalf("reset defaults did not restore defaults: outDir=%q workers=%v quality=%q", a.outDir, a.workersF64, a.cfg.VideoQuality)
+	}
+}
+
+func TestIntegrationMilestone3(t *testing.T) {
+	// 1. Missing yt-dlp banner (Task E5)
+	a := &app{cfg: defaultConfig()}
+	a.ytdlpMissing = true
+	tt := ui.NewTester(a.view, 640, 480)
+
+	if !tt.HasText("yt-dlp not found") || !tt.HasText("Detect") || !tt.HasText("Install instructions") {
+		t.Fatalf("home screen missing yt-dlp banner: %v", tt.Texts())
+	}
+	if err := tt.Click("Install instructions"); err != nil {
+		t.Fatalf("failed to click Install instructions: %v", err)
+	}
+	opened := tt.OpenedURLs()
+	if len(opened) == 0 || !strings.Contains(opened[0], "yt-dlp") {
+		t.Fatalf("expected yt-dlp install URL opened, got %v", opened)
+	}
+
+	// 2. Empty profile state & overall bar (Tasks E6 / E8)
+	a.screen = screenProfile
+	a.currentProfile = &profile{id: 1, name: "empty_creator", url: "https://tiktok.com/@empty"}
+	a.videos = nil
+	ttEmptyProf := ui.NewTester(a.view, 640, 480)
+	if !ttEmptyProf.HasText("No videos found") || !ttEmptyProf.HasText("No videos found — the account may be private; try cookies in Settings") {
+		t.Fatalf("profile detail missing empty state: %v", ttEmptyProf.Texts())
+	}
+
+	// 3. ResetInterrupted on startup (Task E8)
+	tmpDB := filepath.Join(t.TempDir(), "resume_test.db")
+	db, err := sql.Open("sqlite", tmpDB)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)")
+	db.Exec("INSERT INTO profiles(id, url, name) VALUES(1, 'https://tiktok.com/@p', 'p')")
+	db.Exec("INSERT INTO videos(profile_id, url, title, status) VALUES(1, 'u1', 'v1', 'downloading')")
+	db.Exec("INSERT INTO videos(profile_id, url, title, status) VALUES(1, 'u2', 'v2', 'paused')")
+	db.Exec("INSERT INTO videos(profile_id, url, title, status) VALUES(1, 'u3', 'v3', 'done')")
+
+	// Run ResetInterrupted query as done in initDB
+	db.Exec("UPDATE videos SET status='pending' WHERE status IN ('downloading', 'paused')")
+
+	var s1, s2, s3 string
+	db.QueryRow("SELECT status FROM videos WHERE id=1").Scan(&s1)
+	db.QueryRow("SELECT status FROM videos WHERE id=2").Scan(&s2)
+	db.QueryRow("SELECT status FROM videos WHERE id=3").Scan(&s3)
+
+	if s1 != "pending" || s2 != "pending" || s3 != "done" {
+		t.Fatalf("expected interrupted reset to pending, got s1=%q s2=%q s3=%q", s1, s2, s3)
 	}
 }

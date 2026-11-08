@@ -3,8 +3,9 @@ package pages
 import (
 	"fmt"
 
-	mygoui "github.com/egoist/mygo/ui"
 	"nameless/ui"
+
+	mygoui "github.com/egoist/mygo/ui"
 )
 
 // RecentDownloadItem represents a recently completed video.
@@ -23,8 +24,11 @@ type HomeProps struct {
 	ProfilesCount   int
 	Workers         int
 	EngineStatus    string
+	YTDLPMissing    bool
 	RecentDownloads []RecentDownloadItem
 	OnFetch         func()
+	OnDetect        func()
+	OnInstallDocs   func()
 	OnOpenFolder    func(path string)
 }
 
@@ -33,6 +37,31 @@ func RenderHome(c *mygoui.Context, props HomeProps) {
 	t := c.Theme()
 	mygoui.Scroll(c).Fill().Children(func() {
 		mygoui.Column(c).Fill().Gap(16).Padding(24).Children(func() {
+			// Missing yt-dlp Banner (plan §4, milestone 3 task E5)
+			if props.YTDLPMissing {
+				mygoui.Row(c).FillWidth().Padding(12).Gap(12).Radius(8).Background(mygoui.Color{R: 239, G: 68, B: 68, A: 25}).Border(1, mygoui.Color{R: 239, G: 68, B: 68, A: 120}).AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
+					mygoui.Row(c).Gap(10).AlignItems(mygoui.Center).Children(func() {
+						mygoui.Icon(c, ui.IconAlert).Size(18, 18).TextColor(ui.ErrColor())
+						mygoui.Column(c).Gap(2).Children(func() {
+							mygoui.Text(c, "yt-dlp not found").Bold().FontSize(13).TextColor(ui.ErrColor())
+							mygoui.Text(c, "yt-dlp not found — install it, then press Detect").FontSize(12).TextColor(t.TextMuted)
+						})
+					})
+					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+						if mygoui.Button(c.Key("detect-ytdlp-btn"), "Detect").Radius(6).Clicked() {
+							if props.OnDetect != nil {
+								props.OnDetect()
+							}
+						}
+						if mygoui.Button(c.Key("install-ytdlp-btn"), "Install instructions").Radius(6).Clicked() {
+							if props.OnInstallDocs != nil {
+								props.OnInstallDocs()
+							}
+						}
+					})
+				})
+			}
+
 			// Top Search / Profile URL Bar
 			mygoui.Row(c).FillWidth().Gap(10).AlignItems(mygoui.Center).Radius(8).Padding(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 				mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)

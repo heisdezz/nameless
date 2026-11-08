@@ -18,11 +18,12 @@ func (a *app) viewProfilesList(c *ui.Context) {
 	items := make([]pages.ProfileItem, len(a.profiles))
 	for i, p := range a.profiles {
 		items[i] = pages.ProfileItem{
-			ID:         p.id,
-			Name:       p.name,
-			URL:        p.url,
-			AvatarPath: p.avatarPath,
-			AvatarURL:  p.avatarURL,
+			ID:          p.id,
+			Name:        p.name,
+			URL:         p.url,
+			AvatarPath:  p.avatarPath,
+			AvatarURL:   p.avatarURL,
+			VideosCount: a.profileVideosCount(p.id),
 		}
 	}
 
@@ -44,6 +45,9 @@ func (a *app) viewProfilesList(c *ui.Context) {
 			folder := filepath.Join(a.effectiveOutputDir(), p.Name)
 			a.openFolder(c, folder)
 		},
+		OnDelete: func(p pages.ProfileItem) {
+			a.deleteProfile(p.ID)
+		},
 	})
 }
 
@@ -52,9 +56,9 @@ func (a *app) viewProfile(c *ui.Context) {
 	t := c.Theme()
 
 	// Keyboard shortcut: Ctrl+D to start/download all
-	if c.Shortcut(ui.Ctrl, ui.KeyD) {
+	c.OnWindowShortcut(ui.Ctrl, ui.KeyD, func() {
 		a.startDownload()
-	}
+	})
 
 	if a.currentProfile == nil {
 		a.screen = screenProfilesList
@@ -140,8 +144,8 @@ func videoSummary(videos []video) (summary string, complete bool, hasFailed bool
 	if done+failed == total && failed > 0 {
 		return fmt.Sprintf("%d/%d downloaded (%d failed)", done, total, failed), true, true
 	}
-	if done > 0 || failed > 0 {
-		return fmt.Sprintf("%d/%d downloaded", done, total), false, false
+	if failed > 0 {
+		return fmt.Sprintf("%d/%d downloaded (%d failed)", done, total, failed), false, true
 	}
-	return "", false, false
+	return fmt.Sprintf("%d/%d downloaded", done, total), false, false
 }

@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/egoist/mygo/ui"
 	"nameless/ui/pages"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (a *app) viewMain(c *ui.Context) {
@@ -30,9 +31,16 @@ func (a *app) viewMain(c *ui.Context) {
 		ProfilesCount:   profilesCount,
 		Workers:         workers,
 		EngineStatus:    a.ytdlpVersion,
+		YTDLPMissing:    a.ytdlpMissing,
 		RecentDownloads: recentItems,
 		OnFetch: func() {
 			a.fetchProfile()
+		},
+		OnDetect: func() {
+			a.detectYTDLP()
+		},
+		OnInstallDocs: func() {
+			a.openInstallDocs(c)
 		},
 		OnOpenFolder: func(path string) {
 			a.openFolder(c, path)

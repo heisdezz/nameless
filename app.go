@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"nameless/internal/config"
+	"nameless/internal/ytdlp"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -70,11 +71,11 @@ type app struct {
 	cfgPath string
 
 	// main
-	profileURL string
-	outDir     string
-	fetching   bool
-	fetchErr   string
-	profiles   []profile
+	profileURL    string
+	outDir        string
+	fetching      bool
+	fetchErr      string
+	profiles      []profile
 	sidebarFilter string
 	imgCache      map[int64]ui.ImageSource
 	avatarsDir    string
@@ -98,6 +99,7 @@ type app struct {
 	// yt-dlp detection state for the Settings screen (WS-D); ytdlpVersion
 	// is filled by a background Detect and shown via win.Update.
 	ytdlpVersion string
+	ytdlpMissing bool
 	detecting    bool
 
 	// toasts holds transient notifications (errors, success alerts) dispatched
@@ -250,6 +252,57 @@ func (a *app) recentDownloads(limit int) []video {
 	return vids
 }
 
+// profileVideosCount returns the number of videos associated with the profile.
+func (a *app) profileVideosCount(profileID int64) int {
+	if a.db != nil {
+		var count int
+		if err := a.db.QueryRow("SELECT COUNT(*) FROM videos WHERE profile_id=?", profileID).Scan(&count); err == nil {
+			return count
+		}
+	}
+	if a.currentProfile != nil && a.currentProfile.id == profileID {
+		return len(a.videos)
+	}
+	return 0
+}
+
+// deleteProfile removes a profile and its video records from the database.
+func (a *app) deleteProfile(profileID int64) {
+	if a.db != nil {
+		a.db.Exec("DELETE FROM videos WHERE profile_id=?", profileID)
+		a.db.Exec("DELETE FROM profiles WHERE id=?", profileID)
+	}
+	for i, p := range a.profiles {
+		if p.id == profileID {
+			a.profiles = append(a.profiles[:i], a.profiles[i+1:]...)
+			break
+		}
+	}
+	if a.currentProfile != nil && a.currentProfile.id == profileID {
+		a.currentProfile = nil
+		a.videos = nil
+		a.screen = screenProfilesList
+	}
+	a.showToast("Profile Removed", "Profile was deleted from archive", "info")
+}
+
+// detectYTDLP probes system PATH for yt-dlp binary (plan §4, milestone 3 task E5).
+func (a *app) detectYTDLP() {
+	bin, err := ytdlp.Detect()
+	if err != nil {
+		a.ytdlpMissing = true
+		a.ytdlpVersion = "yt-dlp Missing"
+		a.showToast("yt-dlp Missing", "yt-dlp was not found on system PATH", "error")
+	} else {
+		a.ytdlpMissing = false
+		a.ytdlpVersion = "yt-dlp " + bin.Version
+		a.showToast("yt-dlp Ready", "Detected "+a.ytdlpVersion, "success")
+	}
+}
+
+func (a *app) openInstallDocs(c *ui.Context) {
+	c.Services().OpenURL("https://github.com/yt-dlp/yt-dlp#installation")
+}
 
 // profileImage returns the decoded ImageSource for a profile, or nil if unavailable.
 func (a *app) profileImage(p profile) ui.ImageSource {
@@ -373,6 +426,16 @@ func (a *app) initDB() {
 	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_url TEXT`)
 	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_path TEXT`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)`)
+	// Reset interrupted downloads on boot (plan §3, task E8)
+	db.Exec(`UPDATE videos SET status='pending' WHERE status IN ('downloading', 'paused')`)
+	// Probe for yt-dlp binary (plan §4, task E5)
+	if bin, err := ytdlp.Detect(); err == nil {
+		a.ytdlpMissing = false
+		a.ytdlpVersion = "yt-dlp " + bin.Version
+	} else {
+		a.ytdlpMissing = true
+		a.ytdlpVersion = "yt-dlp Missing"
+	}
 }
 
 // loadProfiles reads the profile list. UI thread only.
@@ -579,12 +642,17 @@ func (a *app) startDownload() {
 	if a.currentProfile == nil {
 		return
 	}
+	if a.ytdlpMissing {
+		a.showToast("yt-dlp Missing", "Install yt-dlp first to start downloads", "error")
+		return
+	}
 	a.setPaused(false)
 	a.downloading = true
 	// Snapshot: the worker reads only vids and reports through win.Update,
 	// so UI-thread mutations of a.videos can never race with it.
 	vids := make([]video, len(a.videos))
 	copy(vids, a.videos)
+
 	go func() {
 		for i := range vids {
 			a.waitWhilePaused()

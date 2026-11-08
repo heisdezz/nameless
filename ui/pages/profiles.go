@@ -11,11 +11,13 @@ import (
 
 // ProfileItem represents a profile in the directory.
 type ProfileItem struct {
-	ID         int64
-	Name       string
-	URL        string
-	AvatarPath string
-	AvatarURL  string
+	ID          int64
+	Name        string
+	URL         string
+	AvatarPath  string
+	AvatarURL   string
+	VideosCount int
+	DateStr     string
 }
 
 // ProfilesProps defines inputs and callbacks for the Profiles overview page.
@@ -25,6 +27,7 @@ type ProfilesProps struct {
 	OnNew        func()
 	OnViewVideos func(p ProfileItem)
 	OnOpenFolder func(p ProfileItem)
+	OnDelete     func(p ProfileItem)
 }
 
 // RenderProfiles renders the dedicated Profiles directory page with a grid of profile cards.
@@ -87,11 +90,13 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 					p := item
 					c.Key(fmt.Sprintf("prof-card-%d", p.ID))
 					ui.RenderProfileCard(c, ui.ProfileCardProps{
-						ID:         p.ID,
-						Name:       p.Name,
-						URL:        p.URL,
-						AvatarPath: p.AvatarPath,
-						AvatarURL:  p.AvatarURL,
+						ID:          p.ID,
+						Name:        p.Name,
+						URL:         p.URL,
+						AvatarPath:  p.AvatarPath,
+						AvatarURL:   p.AvatarURL,
+						VideosCount: p.VideosCount,
+						DateStr:     p.DateStr,
 						OnOpenFolder: func() {
 							if props.OnOpenFolder != nil {
 								props.OnOpenFolder(p)
@@ -100,6 +105,11 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 						OnViewVideos: func() {
 							if props.OnViewVideos != nil {
 								props.OnViewVideos(p)
+							}
+						},
+						OnDelete: func() {
+							if props.OnDelete != nil {
+								props.OnDelete(p)
 							}
 						},
 					})
