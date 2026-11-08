@@ -217,3 +217,43 @@ func TestMinWindowResize(t *testing.T) {
 		t.Fatalf("settings screen missing 'Settings' at 360x280: %v", ttSettings.Texts())
 	}
 }
+
+func TestSidebarNavigation(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
+	a.profiles = []profile{
+		{id: 1, name: "tiktok_dancer", url: "https://tiktok.com/@tiktok_dancer"},
+		{id: 2, name: "music_clips", url: "https://tiktok.com/@music_clips"},
+	}
+
+	tt := ui.NewTester(a.view, 640, 480)
+
+	// Verify sidebar elements are present
+	if !tt.HasText("+ New Download") || !tt.HasText("Settings") || !tt.HasText("tiktok_dancer") {
+		t.Fatalf("sidebar missing navigation items: %v", tt.Texts())
+	}
+
+	// Click Settings in sidebar
+	if err := tt.Click("Settings"); err != nil {
+		t.Fatalf("failed to click Settings in sidebar: %v", err)
+	}
+	if a.screen != screenSettings {
+		t.Fatalf("expected screenSettings, got %v", a.screen)
+	}
+
+	// Click + New Download in sidebar to return
+	if err := tt.Click("+ New Download"); err != nil {
+		t.Fatalf("failed to click + New Download in sidebar: %v", err)
+	}
+	if a.screen != screenMain {
+		t.Fatalf("expected screenMain, got %v", a.screen)
+	}
+
+	// Click a profile in sidebar
+	if err := tt.Click("tiktok_dancer"); err != nil {
+		t.Fatalf("failed to click profile in sidebar: %v", err)
+	}
+	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
+		t.Fatalf("expected screenProfile with profile 1, got screen=%v profile=%v", a.screen, a.currentProfile)
+	}
+}

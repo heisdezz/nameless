@@ -8,17 +8,18 @@ import (
 
 func (a *app) viewProfile(c *ui.Context) {
 	t := c.Theme()
+	c.OnShortcut(ui.Ctrl, ui.KeyD, func() {
+		a.startDownload()
+	})
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Fill().Gap(12).Padding(16).Children(func() {
+		ui.Column(c).Fill().Gap(14).Padding(24).Children(func() {
+			if a.currentProfile != nil {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, a.currentProfile.name).FontSize(20).Bold()
+				})
+			}
+
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				if ui.Button(c, "← Back").Clicked() {
-					a.screen = screenMain
-				}
-				if a.currentProfile != nil {
-					ui.Text(c, a.currentProfile.name).FontSize(18).Bold()
-				}
-			})
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if ui.PrimaryButton(c, "Download all").Clicked() {
 					a.startDownload()
 				}
@@ -37,6 +38,7 @@ func (a *app) viewProfile(c *ui.Context) {
 					a.retryFailed()
 				}
 			})
+
 			if summary, complete, hasFailed := videoSummary(a.videos); summary != "" {
 				color := t.TextMuted
 				if complete {
@@ -55,6 +57,11 @@ func (a *app) viewProfile(c *ui.Context) {
 					}
 				})
 			}
+
+			if len(a.videos) == 0 {
+				ui.Text(c, "No videos found — the account may be private; try cookies in Settings").TextColor(t.TextMuted).FontSize(13)
+			}
+
 			for i := range a.videos {
 				v := a.videos[i]
 				c.Key(v.id)
