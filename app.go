@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -36,6 +37,12 @@ type profile struct {
 	id   int64
 	url  string
 	name string
+}
+
+type toastInfo struct {
+	title       string
+	description string
+	toastType   string // "error", "success", "info"
 }
 
 type app struct {
@@ -77,6 +84,10 @@ type app struct {
 	// is filled by a background Detect and shown via win.Update.
 	ytdlpVersion string
 	detecting    bool
+
+	// toasts holds transient notifications (errors, success alerts) dispatched
+	// to the UI context on the next view pass.
+	toasts []toastInfo
 }
 
 func defaultConfig() *config.Config {
@@ -90,6 +101,17 @@ func defaultConfig() *config.Config {
 			Radius:    12,
 			Spacing:   4,
 		},
+	}
+}
+
+// showToast enqueues a transient notification dispatched to ui.Context on the
+// next view pass. Thread-safe; wakes the window via win.Update if attached.
+func (a *app) showToast(title, desc string, toastType string) {
+	a.mu.Lock()
+	a.toasts = append(a.toasts, toastInfo{title: title, description: desc, toastType: toastType})
+	a.mu.Unlock()
+	if a.win != nil {
+		a.win.Update(func() {})
 	}
 }
 
@@ -187,6 +209,7 @@ func (a *app) applyProfile(p profile, vids []video) {
 func (a *app) fetchProfile() {
 	if a.profileURL == "" {
 		a.fetchErr = "Enter a profile URL"
+		a.showToast("Error", "Enter a profile URL", "error")
 		return
 	}
 	if a.fetching {
@@ -206,6 +229,7 @@ func (a *app) fetchProfile() {
 			a.win.Update(func() {
 				a.fetching = false
 				a.fetchErr = "Could not save profile: " + err.Error()
+				a.showToast("Fetch Error", a.fetchErr, "error")
 			})
 			return
 		}
@@ -244,7 +268,18 @@ func (a *app) startDownload() {
 			a.db.Exec("UPDATE videos SET status=? WHERE id=?", "done", id)
 			a.win.Update(func() { a.setVideoStatus(id, "done") })
 		}
-		a.win.Update(func() { a.downloading = false })
+		a.win.Update(func() {
+			a.downloading = false
+			done, total := 0, len(a.videos)
+			for _, v := range a.videos {
+				if v.status == "done" {
+					done++
+				}
+			}
+			if done == total && total > 0 {
+				a.showToast("Download Complete", fmt.Sprintf("All %d videos downloaded", total), "success")
+			}
+		})
 	}()
 }
 
@@ -253,6 +288,9 @@ func (a *app) setVideoStatus(id int64, status string) {
 	for i := range a.videos {
 		if a.videos[i].id == id {
 			a.videos[i].status = status
+			if status == "failed" {
+				a.showToast("Download Failed", a.videos[i].title, "error")
+			}
 			return
 		}
 	}

@@ -4,4 +4,4 @@ mygo_windows_*.syso
 *.db
 /downloads/
 /nameless
-vendor
+/vendor/
