@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -229,21 +230,21 @@ func TestSidebarNavigation(t *testing.T) {
 	tt := ui.NewTester(a.view, 640, 480)
 
 	// Verify sidebar / rail elements are present
-	if !tt.HasText("📥") || !tt.HasText("⚙") || !tt.HasText("tiktok_dancer") {
-		t.Fatalf("sidebar missing navigation items: %v", tt.Texts())
+	if !tt.HasText("tiktok_dancer") {
+		t.Fatalf("sidebar missing profile: %v", tt.Texts())
 	}
 
 	// Click Settings in nav rail
-	if err := tt.Click("⚙"); err != nil {
+	if err := tt.Click("Settings"); err != nil {
 		t.Fatalf("failed to click Settings in nav rail: %v", err)
 	}
 	if a.screen != screenSettings {
 		t.Fatalf("expected screenSettings, got %v", a.screen)
 	}
 
-	// Click 📥 in nav rail to return
-	if err := tt.Click("📥"); err != nil {
-		t.Fatalf("failed to click 📥 in nav rail: %v", err)
+	// Click New Download in nav rail to return
+	if err := tt.Click("New Download"); err != nil {
+		t.Fatalf("failed to click New Download in nav rail: %v", err)
 	}
 	if a.screen != screenMain {
 		t.Fatalf("expected screenMain, got %v", a.screen)
@@ -298,5 +299,39 @@ func TestKeyboardOperability(t *testing.T) {
 	ttProfile.Key(ui.Ctrl, ui.KeyD)
 	if !a.downloading {
 		t.Fatalf("expected a.downloading to be true after Ctrl+D")
+	}
+}
+
+func TestDashboardOverviewStatsAndSettings(t *testing.T) {
+	tmpDB := filepath.Join(t.TempDir(), "dash_test.db")
+	db, err := sql.Open("sqlite", tmpDB)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)")
+	db.Exec("INSERT INTO profiles(id, url, name) VALUES(1, 'https://tiktok.com/@p1', 'profile1')")
+	db.Exec("INSERT INTO videos(profile_id, url, title, status) VALUES(1, 'u1', 'v1', 'done')")
+	db.Exec("INSERT INTO videos(profile_id, url, title, status) VALUES(1, 'u2', 'v2', 'pending')")
+
+	a := &app{cfg: defaultConfig(), db: db}
+	a.loadProfiles()
+
+	tt := ui.NewTester(a.view, 640, 480)
+
+	// Check Overview Stats on Home/Dashboard
+	if !tt.HasText("OVERVIEW STATS") || !tt.HasText("Total Downloaded") || !tt.HasText("Profiles Archived") {
+		t.Fatalf("home screen missing overview stats: %v", tt.Texts())
+	}
+	if !tt.HasText("1 Videos") || !tt.HasText("1 Profiles") {
+		t.Fatalf("expected counts in overview stats: %v", tt.Texts())
+	}
+
+	// Navigate to settings and check that Download Settings are present
+	a.enterSettings()
+	ttSettings := ui.NewTester(a.view, 640, 480)
+	if !ttSettings.HasText("Download & Engine Settings") || !ttSettings.HasText("Default Download Location") {
+		t.Fatalf("settings screen missing download settings: %v", ttSettings.Texts())
 	}
 }

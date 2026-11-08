@@ -184,8 +184,31 @@ func folderURL(dir string) string {
 	return "file://" + slash
 }
 
+// overviewStats returns aggregated metrics for the Home dashboard:
+// total profiles count, total downloaded videos count, and total videos count.
+func (a *app) overviewStats() (profilesCount int, downloadedCount int, totalCount int) {
+	profilesCount = len(a.profiles)
+	if a.db != nil {
+		var done, total int
+		row := a.db.QueryRow("SELECT COUNT(CASE WHEN status='done' THEN 1 END), COUNT(*) FROM videos")
+		if err := row.Scan(&done, &total); err == nil {
+			return profilesCount, done, total
+		}
+	}
+	for _, v := range a.videos {
+		if v.status == "done" {
+			downloadedCount++
+		}
+		totalCount++
+	}
+	return profilesCount, downloadedCount, totalCount
+}
+
 // enterSettings prepares the settings bindings before the screen is shown.
 func (a *app) enterSettings() {
+	if a.outDir == "" && a.cfg != nil {
+		a.outDir = a.cfg.DefaultDownloadLocation
+	}
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
 	a.workersF64 = float64(a.cfg.Workers)
 	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
