@@ -55,7 +55,7 @@ func RenderSidebar(c *mygoui.Context, props SidebarProps) {
 		// 3. Primary Navigation Group (Home, Profiles, Settings)
 		mygoui.Column(c).Gap(2).FillWidth().Children(func() {
 			// Home
-			homeBtn := mygoui.Button(c.Key("nav-home"), "").Label("Home").FillWidth().Height(34).Radius(6)
+			homeBtn := mygoui.Button(c.Key("nav-home"), "").Label("Home").FillWidth().Height(34).Radius(6).Border(0, mygoui.Transparent).Justify(mygoui.Start)
 			homeBtn.Children(func() {
 				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Padding(4).Children(func() {
 					mygoui.Icon(c, IconDownload).Size(15, 15)
@@ -72,7 +72,7 @@ func RenderSidebar(c *mygoui.Context, props SidebarProps) {
 			}
 
 			// Profiles
-			profBtn := mygoui.Button(c.Key("nav-profiles"), "").Label("Profiles").FillWidth().Height(34).Radius(6)
+			profBtn := mygoui.Button(c.Key("nav-profiles"), "").Label("Profiles").FillWidth().Height(34).Radius(6).Border(0, mygoui.Transparent).Justify(mygoui.Start)
 			profBtn.Children(func() {
 				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Padding(4).Children(func() {
 					mygoui.Icon(c, IconFolder).Size(15, 15)
@@ -89,7 +89,7 @@ func RenderSidebar(c *mygoui.Context, props SidebarProps) {
 			}
 
 			// Settings
-			settingsBtn := mygoui.Button(c.Key("nav-settings"), "").Label("Settings").FillWidth().Height(34).Radius(6)
+			settingsBtn := mygoui.Button(c.Key("nav-settings"), "").Label("Settings").FillWidth().Height(34).Radius(6).Border(0, mygoui.Transparent).Justify(mygoui.Start)
 			settingsBtn.Children(func() {
 				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Padding(4).Children(func() {
 					mygoui.Icon(c, IconSettings).Size(15, 15)
@@ -127,7 +127,7 @@ func RenderSidebar(c *mygoui.Context, props SidebarProps) {
 					}
 					count++
 					profID := p.ID
-					profItem := mygoui.Button(c.Key(fmt.Sprintf("side-item-%d", p.ID)), "").Label(p.Name).FillWidth().Height(36).Radius(6)
+					profItem := mygoui.Button(c.Key(fmt.Sprintf("side-item-%d", p.ID)), "").Label(p.Name).FillWidth().Height(36).Radius(6).Border(0, mygoui.Transparent).Justify(mygoui.Start)
 					profItem.Children(func() {
 						mygoui.Row(c).FillWidth().Gap(8).AlignItems(mygoui.Center).Padding(4).Children(func() {
 							// Avatar badge (Ref 1 [L], [H], [T] style)
