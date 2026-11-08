@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -91,6 +92,51 @@ func (a *app) viewMain(c *ui.Context) {
 					ui.Text(c, version).Bold().FontSize(14).TextColor(t.Text)
 				})
 			})
+
+			// Recent Downloads Section Header
+			recent := a.recentDownloads(5)
+			ui.Row(c).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
+				ui.Text(c, "RECENT DOWNLOADS").TextColor(t.TextMuted).Bold().FontSize(11)
+				if len(recent) > 0 {
+					ui.Text(c, fmt.Sprintf("%d completed", len(recent))).TextColor(t.TextMuted).FontSize(11)
+				}
+			})
+
+			if len(recent) == 0 {
+				ui.Column(c).FillWidth().Padding(16).Gap(6).Radius(8).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, iconDownload).Size(18, 18).TextColor(t.TextMuted)
+					ui.Text(c, "No downloaded videos yet").TextColor(t.TextMuted).FontSize(13)
+				})
+			} else {
+				ui.Column(c).FillWidth().Gap(6).Children(func() {
+					for i := range recent {
+						v := recent[i]
+						c.Key(v.id)
+						ui.Row(c).FillWidth().Padding(10).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Children(func() {
+							ui.Icon(c, iconCheck).Size(14, 14).TextColor(t.TextMuted)
+							ui.Column(c).Fill().Gap(2).Children(func() {
+								title := v.title
+								if title == "" {
+									title = v.url
+								}
+								ui.Text(c, title).FontSize(13).Bold()
+								sub := v.url
+								if v.path != "" {
+									sub = filepath.Base(v.path)
+								}
+								ui.Text(c, sub).TextColor(t.TextMuted).FontSize(11)
+							})
+							if ui.Button(c, "Open folder").Radius(6).Clicked() {
+								target := v.path
+								if target == "" {
+									target = a.effectiveOutputDir()
+								}
+								a.openFolder(c, target)
+							}
+						})
+					}
+				})
+			}
 
 			// Quick-Start Hero Card
 			ui.Column(c).FillWidth().Padding(18).Gap(8).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {

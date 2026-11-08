@@ -356,3 +356,54 @@ func TestDashboardOverviewStatsAndSettings(t *testing.T) {
 		t.Fatalf("settings screen missing download settings: %v", ttSettings.Texts())
 	}
 }
+
+
+func TestRecentDownloads(t *testing.T) {
+	tmpDB := filepath.Join(t.TempDir(), "recent_test.db")
+	db, err := sql.Open("sqlite", tmpDB)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)")
+
+	a := &app{cfg: defaultConfig(), db: db}
+
+	// 1. Empty state
+	ttEmpty := ui.NewTester(a.view, 640, 480)
+	if !ttEmpty.HasText("RECENT DOWNLOADS") || !ttEmpty.HasText("No downloaded videos yet") {
+		t.Fatalf("expected empty recent downloads section, got %v", ttEmpty.Texts())
+	}
+
+	// 2. Populate DB with downloaded videos
+	db.Exec("INSERT INTO videos(id, profile_id, url, title, status, path) VALUES(1, 1, 'https://tiktok.com/@u/1', 'Dance Trend #1', 'done', '/tmp/dance1.mp4')")
+	db.Exec("INSERT INTO videos(id, profile_id, url, title, status, path) VALUES(2, 1, 'https://tiktok.com/@u/2', 'Cooking Recipe #2', 'pending', '')")
+	db.Exec("INSERT INTO videos(id, profile_id, url, title, status, path) VALUES(3, 1, 'https://tiktok.com/@u/3', 'Comedy Sketch #3', 'done', '/tmp/sketch3.mp4')")
+
+	recent := a.recentDownloads(5)
+	if len(recent) != 2 {
+		t.Fatalf("expected 2 recent downloads, got %d", len(recent))
+	}
+	if recent[0].title != "Comedy Sketch #3" || recent[1].title != "Dance Trend #1" {
+		t.Fatalf("expected newest completed first, got %v", recent)
+	}
+
+	// 3. UI renders recent items
+	tt := ui.NewTester(a.view, 640, 480)
+	if !tt.HasText("Comedy Sketch #3") || !tt.HasText("Dance Trend #1") {
+		t.Fatalf("expected recent videos in home view, got %v", tt.Texts())
+	}
+	if !tt.HasText("2 completed") {
+		t.Fatalf("expected '2 completed' badge, got %v", tt.Texts())
+	}
+
+	// 4. Clicking 'Open folder' triggers openFolder
+	if err := tt.Click("Open folder"); err != nil {
+		t.Fatalf("failed to click Open folder: %v", err)
+	}
+	opened := tt.OpenedURLs()
+	if len(opened) == 0 {
+		t.Fatalf("expected OpenedURLs to contain folder URL, got none")
+	}
+}

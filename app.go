@@ -68,6 +68,7 @@ type app struct {
 	fetching   bool
 	fetchErr   string
 	profiles   []profile
+	sidebarFilter string
 
 	// profile view
 	currentProfile *profile
@@ -204,6 +205,41 @@ func (a *app) overviewStats() (profilesCount int, downloadedCount int, totalCoun
 	}
 	return profilesCount, downloadedCount, totalCount
 }
+
+// recentDownloads returns the most recently completed downloads up to limit.
+func (a *app) recentDownloads(limit int) []video {
+	if limit <= 0 {
+		limit = 5
+	}
+	if a.db != nil {
+		rows, err := a.db.Query("SELECT id,url,title,status,path FROM videos WHERE status='done' ORDER BY id DESC LIMIT ?", limit)
+		if err == nil {
+			defer rows.Close()
+			var vids []video
+			for rows.Next() {
+				var v video
+				if err := rows.Scan(&v.id, &v.url, &v.title, &v.status, &v.path); err != nil {
+					break
+				}
+				vids = append(vids, v)
+			}
+			if len(vids) > 0 || len(a.videos) == 0 {
+				return vids
+			}
+		}
+	}
+	var vids []video
+	for i := len(a.videos) - 1; i >= 0; i-- {
+		if a.videos[i].status == "done" {
+			vids = append(vids, a.videos[i])
+			if len(vids) >= limit {
+				break
+			}
+		}
+	}
+	return vids
+}
+
 
 // enterSettings prepares the settings bindings before the screen is shown.
 func (a *app) enterSettings() {
