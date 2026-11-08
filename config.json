@@ -1,0 +1,11 @@
+{
+  "cookie": "",
+  "session_id": "",
+  "env_file": ".env",
+  "default_download_location": "./downloads",
+  "workers": 3,
+  "delay": "1s",
+  "per_video_timeout": "5m",
+  "prefer_ytdlp": false,
+  "install_ytdlp": false
+}
