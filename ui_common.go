@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -41,203 +39,100 @@ func (a *app) view(c *ui.Context) {
 		a.screen = screenMain
 	})
 
-	ui.Column(c).Fill().Padding(10).Gap(10).Background(t.Background).Children(func() {
-		// Main Row: Left Rail + Center Content + Right Panel
-		ui.Row(c).Fill().Gap(10).Children(func() {
-			a.viewNavRail(c)
+	ui.Row(c).Fill().Padding(12).Gap(12).Background(t.Background).Children(func() {
+		// Left Sidebar Navigation Rail
+		a.viewSidebar(c)
 
-			// Center Content
-			ui.Column(c).Fill().Children(func() {
-				switch a.screen {
-				case screenMain:
-					a.viewMain(c)
-				case screenProfile:
-					a.viewProfile(c)
-				case screenSettings:
-					a.viewSettings(c)
-				}
-			})
-
-			// Right Panel (Recent Profiles)
-			a.viewRightQueue(c)
-		})
-
-		// Bottom Persistent Dock (Mirroring audio player dock in dash.png)
-		a.viewBottomDock(c)
-	})
-}
-
-// viewNavRail renders the slim left dock with app logo and navigation buttons.
-func (a *app) viewNavRail(c *ui.Context) {
-	t := c.Theme()
-	ui.Column(c).Width(64).FillHeight().Padding(8).Gap(14).AlignItems(ui.Center).Radius(18).Background(t.Surface).Children(func() {
-		// App Mark / Waveform Logo
-		ui.Row(c).Center().Padding(4).Children(func() {
-			ui.Icon(c, iconWave).Size(24, 24).TextColor(t.Accent)
-		})
-
-		ui.Box(c).Height(1).Width(36).Background(t.Border)
-
-		// Home / New Download Button
-		homeBtn := ui.Button(c.Key("rail-home"), "").Label("New Download").Tooltip("New Download").Size(44, 40).Radius(12)
-		homeBtn.Children(func() {
-			ui.Icon(c, iconDownload).Size(20, 20)
-		})
-		if a.screen == screenMain {
-			homeBtn.Background(t.Accent).TextColor(t.AccentText)
-		}
-		if homeBtn.Clicked() {
-			a.screen = screenMain
-		}
-
-		// Profiles / Library Button
-		profBtn := ui.Button(c.Key("rail-profiles"), "").Label("Profiles").Tooltip("Profiles").Size(44, 40).Radius(12)
-		profBtn.Children(func() {
-			ui.Icon(c, iconFolder).Size(20, 20)
-		})
-		if a.screen == screenProfile {
-			profBtn.Background(t.Accent).TextColor(t.AccentText)
-		}
-		if profBtn.Clicked() {
-			if a.currentProfile != nil {
-				a.screen = screenProfile
-			} else if len(a.profiles) > 0 {
-				a.openProfile(a.profiles[0])
-			} else {
-				a.screen = screenMain
+		// Main Content Viewport (full remaining width and height)
+		ui.Column(c).Fill().Children(func() {
+			switch a.screen {
+			case screenMain:
+				a.viewMain(c)
+			case screenProfilesList:
+				a.viewProfilesList(c)
+			case screenProfile:
+				a.viewProfile(c)
+			case screenSettings:
+				a.viewSettings(c)
 			}
-		}
-
-		// Spacer
-		ui.Column(c).Fill().Children(func() {})
-
-		// Settings Button pinned at bottom
-		settingsBtn := ui.Button(c.Key("rail-settings"), "").Label("Settings").Tooltip("Settings").Size(44, 40).Radius(12)
-		settingsBtn.Children(func() {
-			ui.Icon(c, iconSettings).Size(20, 20)
 		})
-		if a.screen == screenSettings {
-			settingsBtn.Background(t.Accent).TextColor(t.AccentText)
-		}
-		if settingsBtn.Clicked() {
-			a.enterSettings()
-		}
 	})
 }
 
-// viewRightQueue renders the right-hand panel of recent profiles (mirroring "Up next" in dash.png).
-func (a *app) viewRightQueue(c *ui.Context) {
+// viewSidebar renders the left sidebar with app branding and primary navigation links.
+func (a *app) viewSidebar(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Width(160).FillHeight().Padding(10).Gap(8).Radius(18).Background(t.Surface).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-			ui.Text(c, "Profiles").Bold().FontSize(12)
-			ui.Text(c, fmt.Sprintf("%d", len(a.profiles))).TextColor(t.TextMuted).FontSize(11)
+	ui.Column(c).Width(180).FillHeight().Padding(14).Gap(14).Radius(18).Background(t.Surface).Children(func() {
+		// App Header / Branding
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconWave).Size(22, 22).TextColor(t.Accent)
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, "nameless").Bold().FontSize(17)
+				ui.Text(c, "TikTok Downloader").TextColor(t.TextMuted).FontSize(11)
+			})
 		})
 
 		ui.Box(c).Height(1).FillWidth().Background(t.Border)
 
-		ui.Scroll(c).Fill().Children(func() {
-			ui.Column(c).FillWidth().Gap(4).Children(func() {
-				if len(a.profiles) == 0 {
-					ui.Text(c, "No profiles yet").TextColor(t.TextMuted).FontSize(11)
-				}
-				for i := range a.profiles {
-					p := a.profiles[i]
-					btn := ui.Button(c.Key(fmt.Sprintf("right-prof-%d", p.id)), p.name).FillWidth().Radius(8)
-					if a.screen == screenProfile && a.currentProfile != nil && a.currentProfile.id == p.id {
-						btn.Bold().Background(t.SurfaceHover)
-					}
-					if btn.Clicked() {
-						a.openProfile(p)
-					}
-				}
-			})
-		})
-	})
-}
-
-// viewBottomDock renders the floating dock with batch controls and overall status.
-func (a *app) viewBottomDock(c *ui.Context) {
-	t := c.Theme()
-	ui.Row(c).Height(56).FillWidth().Padding(10).AlignItems(ui.Center).Radius(18).Background(t.Surface).Children(func() {
-		// Left: Current download or profile title
-		ui.Row(c).Width(180).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconWave).Size(18, 18).TextColor(t.Accent)
-			ui.Column(c).Gap(2).Children(func() {
-				title := "nameless"
-				sub := "Ready to download"
-				if a.currentProfile != nil {
-					title = a.currentProfile.name
-				}
-				if a.downloading {
-					sub = "Downloading..."
-				} else if summary, _, _ := videoSummary(a.videos); summary != "" {
-					sub = summary
-				}
-				ui.Text(c, title).Bold().FontSize(12)
-				ui.Text(c, sub).TextColor(t.TextMuted).FontSize(10)
-			})
-		})
-
-		// Center: Transport / Batch controls & Progress summary
-		ui.Row(c).Fill().Center().Gap(10).Children(func() {
-			if a.downloading {
-				if a.paused {
-					resumeBtn := ui.PrimaryButton(c.Key("dock-resume"), "").Label("Resume").Radius(12)
-					resumeBtn.Children(func() {
-						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							ui.Icon(c, iconPlay).Size(14, 14)
-							ui.Text(c, "Resume")
-						})
-					})
-					if resumeBtn.Clicked() {
-						a.setPaused(false)
-					}
-				} else {
-					pauseBtn := ui.Button(c.Key("dock-pause"), "").Label("Pause").Radius(12)
-					pauseBtn.Children(func() {
-						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							ui.Icon(c, iconPause).Size(14, 14)
-							ui.Text(c, "Pause")
-						})
-					})
-					if pauseBtn.Clicked() {
-						a.setPaused(true)
-					}
-				}
-			} else if a.currentProfile != nil && len(a.videos) > 0 {
-				dlBtn := ui.PrimaryButton(c.Key("dock-download"), "").Label("Download all").Radius(12)
-				dlBtn.Children(func() {
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, iconPlay).Size(14, 14)
-						ui.Text(c, "Download all")
-					})
+		// Navigation Links
+		ui.Column(c).Gap(6).Children(func() {
+			// Home / New Download
+			homeBtn := ui.Button(c.Key("nav-home"), "").Label("Home").FillWidth().Height(40).Radius(12)
+			homeBtn.Children(func() {
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(4).Children(func() {
+					ui.Icon(c, iconDownload).Size(18, 18)
+					ui.Text(c, "Home").Bold().FontSize(13)
 				})
-				if dlBtn.Clicked() {
-					a.startDownload()
-				}
+			})
+			if a.screen == screenMain {
+				homeBtn.Background(t.Accent).TextColor(t.AccentText)
+			}
+			if homeBtn.Clicked() {
+				a.screen = screenMain
 			}
 
-			if summary, _, _ := videoSummary(a.videos); summary != "" {
-				ui.Text(c, summary).TextColor(t.Accent).Bold().FontSize(12)
+			// Profiles Page
+			profBtn := ui.Button(c.Key("nav-profiles"), "").Label("Profiles").FillWidth().Height(40).Radius(12)
+			profBtn.Children(func() {
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(4).Children(func() {
+					ui.Icon(c, iconFolder).Size(18, 18)
+					ui.Text(c, "Profiles").Bold().FontSize(13)
+				})
+			})
+			if a.screen == screenProfilesList || a.screen == screenProfile {
+				profBtn.Background(t.Accent).TextColor(t.AccentText)
+			}
+			if profBtn.Clicked() {
+				a.screen = screenProfilesList
+			}
+
+			// Settings Page
+			settingsBtn := ui.Button(c.Key("nav-settings"), "").Label("Settings").FillWidth().Height(40).Radius(12)
+			settingsBtn.Children(func() {
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(4).Children(func() {
+					ui.Icon(c, iconSettings).Size(18, 18)
+					ui.Text(c, "Settings").Bold().FontSize(13)
+				})
+			})
+			if a.screen == screenSettings {
+				settingsBtn.Background(t.Accent).TextColor(t.AccentText)
+			}
+			if settingsBtn.Clicked() {
+				a.enterSettings()
 			}
 		})
 
-		// Right: Actions (Open folder, Engine status)
-		ui.Row(c).Width(180).Justify(ui.End).AlignItems(ui.Center).Gap(8).Children(func() {
-			if summary, complete, hasFailed := videoSummary(a.videos); complete && !hasFailed && summary != "" {
-				dockFolderBtn := ui.Button(c.Key("dock-open-folder"), "").Label("Open output folder").Radius(8)
-				dockFolderBtn.Children(func() {
-					ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, iconFolder).Size(13, 13)
-						ui.Text(c, "Open output folder")
-					})
-				})
-				if dockFolderBtn.Clicked() {
-					a.openFolder(c, a.effectiveOutputDir())
-				}
+		// Spacer
+		ui.Column(c).Fill().Children(func() {})
+
+		// Engine Status at bottom
+		ui.Box(c).Height(1).FillWidth().Background(t.Border)
+		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+			version := a.ytdlpVersion
+			if version == "" {
+				version = "yt-dlp Ready"
 			}
-			ui.Text(c, "yt-dlp").TextColor(t.TextMuted).FontSize(10)
+			ui.Text(c, version).TextColor(t.TextMuted).FontSize(11)
 		})
 	})
 }

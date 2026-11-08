@@ -24,6 +24,7 @@ const (
 	screenMain screen = iota
 	screenProfile
 	screenSettings
+	screenProfilesList
 )
 
 type video struct {

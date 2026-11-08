@@ -229,33 +229,54 @@ func TestSidebarNavigation(t *testing.T) {
 
 	tt := ui.NewTester(a.view, 640, 480)
 
-	// Verify sidebar / rail elements are present
-	if !tt.HasText("tiktok_dancer") {
-		t.Fatalf("sidebar missing profile: %v", tt.Texts())
+	// Verify sidebar elements are present
+	if !tt.HasText("Home") || !tt.HasText("Profiles") || !tt.HasText("Settings") {
+		t.Fatalf("sidebar missing navigation items: %v", tt.Texts())
 	}
 
-	// Click Settings in nav rail
+	// Click Settings in sidebar
 	if err := tt.Click("Settings"); err != nil {
-		t.Fatalf("failed to click Settings in nav rail: %v", err)
+		t.Fatalf("failed to click Settings in sidebar: %v", err)
 	}
 	if a.screen != screenSettings {
 		t.Fatalf("expected screenSettings, got %v", a.screen)
 	}
 
-	// Click New Download in nav rail to return
-	if err := tt.Click("New Download"); err != nil {
-		t.Fatalf("failed to click New Download in nav rail: %v", err)
+	// Click Home in sidebar
+	if err := tt.Click("Home"); err != nil {
+		t.Fatalf("failed to click Home in sidebar: %v", err)
 	}
 	if a.screen != screenMain {
 		t.Fatalf("expected screenMain, got %v", a.screen)
 	}
 
-	// Click a profile in right panel
-	if err := tt.Click("tiktok_dancer"); err != nil {
-		t.Fatalf("failed to click profile: %v", err)
+	// Click Profiles in sidebar -> navigates to dedicated Profiles page
+	if err := tt.Click("Profiles"); err != nil {
+		t.Fatalf("failed to click Profiles in sidebar: %v", err)
+	}
+	if a.screen != screenProfilesList {
+		t.Fatalf("expected screenProfilesList, got %v", a.screen)
+	}
+
+	// Profiles page displays profiles
+	if !tt.HasText("tiktok_dancer") || !tt.HasText("View Videos") {
+		t.Fatalf("profiles page missing profile card: %v", tt.Texts())
+	}
+
+	// Click "View Videos" on profile card -> navigates to screenProfile
+	if err := tt.Click("View Videos"); err != nil {
+		t.Fatalf("failed to click View Videos: %v", err)
 	}
 	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
 		t.Fatalf("expected screenProfile with profile 1, got screen=%v profile=%v", a.screen, a.currentProfile)
+	}
+
+	// Click "← All Profiles" -> navigates back to screenProfilesList
+	if err := tt.Click("← All Profiles"); err != nil {
+		t.Fatalf("failed to click ← All Profiles: %v", err)
+	}
+	if a.screen != screenProfilesList {
+		t.Fatalf("expected screenProfilesList after back, got %v", a.screen)
 	}
 }
 
