@@ -96,13 +96,16 @@ type app struct {
 	// Profile detail loading/pagination state. profileLoading shows the
 	// loader until the async DB load finishes; profileLoadGen discards
 	// stale loads when the user navigates quickly.
-	profileLoading  bool
-	profileLoadGen  int
-	profileSearch   string
-	profileSort     string
-	profilePage     int
-	profilePageSize int
-	thumbInflight   map[int64]bool
+	profileLoading     bool
+	profileLoadGen     int
+	profileSearch      string    // debounced (applied) query
+	profileSearchInput string    // raw field contents, edited per keystroke
+	profileSearchSeen  string    // last raw value observed by viewProfile
+	profileSearchAt    time.Time // when the raw value last changed
+	profileSort        string
+	profilePage        int
+	profilePageSize    int
+	thumbInflight      map[int64]bool
 
 	// Profiles list state: cached per-profile video counts (one GROUP BY
 	// query instead of a query per card per frame), decoded avatar cache,
@@ -123,6 +126,7 @@ type app struct {
 	spacingSel     string
 	delayStr       string
 	timeoutStr     string
+	saveByUsername bool // Save downloads by username toggle
 
 	// yt-dlp detection state for the Settings screen (WS-D); ytdlpVersion
 	// is filled by a background Detect and shown via win.Update.
@@ -192,6 +196,7 @@ func defaultConfig() *config.Config {
 		},
 		TikDownloaderAPI:    "https://tikdownloader.io",
 		TikDownloaderFormat: "mp4",
+		SaveByUsername:      false,
 	}
 }
 
@@ -270,6 +275,26 @@ func folderURL(dir string) string {
 		slash = "/" + slash
 	}
 	return "file://" + slash
+}
+
+// sanitizeSegment makes a string safe for use as a directory name,
+// mirroring tikdownloader's internal sanitizer logic.
+func sanitizeSegment(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('_')
+		default:
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if len(out) > 80 {
+		out = strings.Trim(out[:80], "_")
+	}
+	return out
 }
 
 // overviewStats returns aggregated metrics for the Home dashboard:
@@ -404,6 +429,8 @@ func (a *app) enterSettings() {
 	if a.outDir == "" {
 		a.outDir = a.cfg.DefaultDownloadLocation
 	}
+	// Initialize save-by-username toggle from config
+	a.saveByUsername = a.cfg.SaveByUsername
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
 	a.workersF64 = float64(a.cfg.EffectiveConcurrentDownloads())
 	a.connectionsF64 = float64(a.cfg.EffectiveConnectionsPerDownload())
@@ -467,6 +494,7 @@ func (a *app) saveSettings() {
 	if a.radiusF64 >= 0 {
 		a.cfg.Theme.Radius = float32(a.radiusF64)
 	}
+	a.cfg.SaveByUsername = a.saveByUsername
 	// Track theme change for animation
 	a.themeNew = a.cfg.Theme
 	a.themeDirty = true
@@ -491,6 +519,8 @@ func (a *app) resetSettingsToDefault() {
 	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
+	// Reset save-by-username toggle
+	a.saveByUsername = false
 	// Reset theme animation state
 	a.themeNew = a.cfg.Theme
 	a.themeAnim = 0
@@ -1219,6 +1249,8 @@ func (a *app) openProfile(p profile) {
 	a.videos = nil
 	a.profilePage = 1
 	a.profileSearch = ""
+	a.profileSearchInput = ""
+	a.profileSearchSeen = ""
 	a.profileSort = "Default"
 	if a.profilePageSize <= 0 {
 		a.profilePageSize = 20
@@ -1264,8 +1296,8 @@ func (a *app) startDownload() {
 	// download (default 5) is separate from concurrent downloads below.
 	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, effectiveTikFormat(cfg), cfg.EffectiveConnectionsPerDownload())
 	outDir := a.effectiveOutputDir()
-	// Snapshot video IDs by URL on the UI thread; workers must not race
-	// with UI mutations of a.videos.
+	// If enabled, save videos in per-uploader subdirectories
+	// We'll compute the per-video directory after fetching metadata.
 	vidsSnapshot := make([]video, len(a.videos))
 	copy(vidsSnapshot, a.videos)
 	a.setPaused(false)
@@ -1303,6 +1335,18 @@ func (a *app) startDownload() {
 			return
 		}
 
+		// Determine per-uploader directory if SaveByUsername is enabled
+		var uploaderDir string
+		if cfg.SaveByUsername && meta.Uploader != "" {
+			// Sanitize the uploader name for use as a directory
+			uploaderDir = filepath.Join(outDir, sanitizeSegment(meta.Uploader))
+			if err := os.MkdirAll(uploaderDir, 0o755); err != nil {
+				a.showToast("Directory Error", fmt.Sprintf("Failed to create uploader subdirectory: %v", err), "error")
+				a.downloading = false
+				return
+			}
+		}
+
 		// Download videos using tikdownloader.io, up to
 		// EffectiveConcurrentDownloads (default 3, max 5) at once.
 		// ConnectionsPerDownload is handled inside tikdownloader per file.
@@ -1324,7 +1368,12 @@ func (a *app) startDownload() {
 					a.onUI(func() { a.setVideoStatus(id, "downloading") })
 					// Per-video timeout from Settings (default 5m).
 					dlCtx, dlCancel := context.WithTimeout(context.Background(), cfg.PerVideoTimeout)
-					result, err := dl.DownloadVideo(dlCtx, j.videoURL, outDir)
+					// Use uploader subdirectory if configured
+					dlTargetDir := outDir
+					if uploaderDir != "" {
+						dlTargetDir = uploaderDir
+					}
+					result, err := dl.DownloadVideo(dlCtx, j.videoURL, dlTargetDir)
 					dlCancel()
 					if err != nil {
 						if a.db != nil {

@@ -21,6 +21,7 @@ type VideoCardProps struct {
 	Thumbnail    *mygoui.Bitmap
 	OnWatch      func()
 	OnOpenFolder func()
+	OnDownload   func()
 }
 
 // RenderVideoCard renders a poster-style media card for a video in the profile grid,
@@ -34,7 +35,7 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 	}
 
 	mygoui.Column(c.Key(fmt.Sprintf("vcard-%d", props.ID))).
-		FillWidth().
+		Fill().
 		Radius(12).
 		Background(t.Surface).
 		Border(1, t.Border).
@@ -142,8 +143,35 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 					}
 				})
 
-				// 3. Actions Row: Open folder
+				// 3. Actions Row: Open folder when downloaded,
+				// otherwise Download (Retry when failed).
 				mygoui.Row(c).FillWidth().Gap(6).AlignItems(mygoui.Center).Children(func() {
+					if props.Status != "done" && props.OnDownload != nil {
+						label := "Download"
+						switch props.Status {
+						case "failed":
+							label = "Retry"
+						case "downloading":
+							label = "Downloading..."
+						}
+						dlBtn := mygoui.PrimaryButton(c.Key(fmt.Sprintf("vcard-download-%d", props.ID)), "").
+							Label(label).
+							Height(28).
+							Radius(6).Grow(1)
+						dlBtn.Children(func() {
+							mygoui.Row(c).Fill().Center().Gap(4).Padding(2).Children(func() {
+								mygoui.Icon(c, ui.IconDownload).Size(12, 12)
+								mygoui.Text(c, label).FontSize(11)
+							})
+						})
+						if props.Status == "downloading" {
+							dlBtn.Disabled(true)
+						}
+						if dlBtn.Clicked() && props.Status != "downloading" {
+							props.OnDownload()
+						}
+						return
+					}
 					if props.Status == "done" && props.OnOpenFolder != nil {
 						folderBtn := mygoui.Button(c.Key(fmt.Sprintf("vcard-folder-%d", props.ID)), "").
 							Label("Open folder").

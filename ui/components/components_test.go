@@ -101,3 +101,29 @@ func TestRenderStatCard(t *testing.T) {
 		t.Errorf("expected stat card texts, got %v", tt.Texts())
 	}
 }
+
+func TestRenderVideoCardDownloadButton(t *testing.T) {
+	downloaded := false
+	view := func(c *mygoui.Context) {
+		RenderVideoCard(c, VideoCardProps{
+			ID:      7,
+			Index:   0,
+			Title:   "Pending Vid",
+			Status:  "pending",
+			OnDownload: func() {
+				downloaded = true
+			},
+		})
+	}
+	tt := mygoui.NewTester(view, 400, 300)
+	if !tt.HasText("Download") {
+		t.Errorf("expected 'Download' button for pending video, got %v", tt.Texts())
+	}
+	if tt.HasText("Open folder") {
+		t.Errorf("pending video should not show 'Open folder', got %v", tt.Texts())
+	}
+	_ = tt.Click("Download")
+	if !downloaded {
+		t.Errorf("expected OnDownload to be invoked")
+	}
+}

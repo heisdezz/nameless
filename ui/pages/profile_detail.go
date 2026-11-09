@@ -38,9 +38,12 @@ type ProfileDetailProps struct {
 	OverallPct     float64
 	GridCols       *string
 	// Pagination props
-	Page             int
-	PageSize         int
+	Page     int
+	PageSize int
+	// SearchQuery is the raw field binding (edited every keystroke);
+	// AppliedSearch is the debounced query actually used for filtering.
 	SearchQuery      *string
+	AppliedSearch    string
 	SortBy           *string
 	OnSortChange     func(sortBy string)
 	OnPageChange     func(page int)
@@ -50,14 +53,15 @@ type ProfileDetailProps struct {
 	// Loading state
 	Loading bool
 	// Callbacks
-	OnBack         func()
-	OnDownloadAll  func()
-	OnPause        func()
-	OnResume       func()
-	OnRetryFailed  func()
-	OnOpenOutput   func()
-	OnOpenVideoDir func(path string)
-	OnWatchVideo   func(v VideoItem)
+	OnBack          func()
+	OnDownloadAll   func()
+	OnPause         func()
+	OnResume        func()
+	OnRetryFailed   func()
+	OnOpenOutput    func()
+	OnOpenVideoDir  func(path string)
+	OnWatchVideo    func(v VideoItem)
+	OnDownloadVideo func(v VideoItem)
 }
 
 // sortOptions are the labels offered in the Sort select.
@@ -177,8 +181,12 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 		pageSize = 20
 	}
 
-	search := ""
-	if props.SearchQuery != nil {
+	// Filter by the debounced query, not the raw field contents, so
+	// typing does not re-filter (and replay the sweep) per keystroke.
+	search := props.AppliedSearch
+	if search == "" && props.SearchQuery != nil {
+		// No debounced value supplied (e.g. direct component use):
+		// filter by the field contents as before.
 		search = *props.SearchQuery
 	}
 
@@ -299,7 +307,7 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 				// Wrap: on narrow windows the selects flow to a second
 				// line instead of overflowing off the right edge.
 				mygoui.Row(c).FillWidth().Wrap().Gap(10).AlignItems(mygoui.Center).Children(func() {
-					mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
+					// mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
 					if props.SearchQuery != nil {
 						mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Grow(1).MinWidth(180)
 					}
@@ -436,6 +444,11 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 									OnOpenFolder: func() {
 										if props.OnOpenVideoDir != nil {
 											props.OnOpenVideoDir(v.Path)
+										}
+									},
+									OnDownload: func() {
+										if props.OnDownloadVideo != nil {
+											props.OnDownloadVideo(v)
 										}
 									},
 								})

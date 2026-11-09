@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"nameless/ui/pages"
 
@@ -87,6 +88,22 @@ func (a *app) viewProfile(c *ui.Context) {
 		return
 	}
 
+	// Debounce search: the field edits profileSearchInput per keystroke,
+	// but filtering (and the card sweep) only updates 300ms after the
+	// last keystroke, instead of re-filtering on every key.
+	if a.profileSearchInput != a.profileSearchSeen {
+		a.profileSearchSeen = a.profileSearchInput
+		a.profileSearchAt = c.Now()
+	}
+	if a.profileSearchInput != a.profileSearch {
+		if elapsed := c.Now().Sub(a.profileSearchAt); elapsed >= 300*time.Millisecond {
+			a.profileSearch = a.profileSearchInput
+			a.profilePage = 1
+		} else {
+			c.After(300*time.Millisecond - elapsed)
+		}
+	}
+
 	summary, complete, hasFailed := videoSummary(a.videos)
 	color := t.TextMuted
 	if complete {
@@ -129,7 +146,8 @@ func (a *app) viewProfile(c *ui.Context) {
 		GridCols:       &a.profileGridCols,
 		Page:           a.profilePage,
 		PageSize:       a.profilePageSize,
-		SearchQuery:    &a.profileSearch,
+		SearchQuery:    &a.profileSearchInput,
+		AppliedSearch:  a.profileSearch,
 		SortBy:         &a.profileSort,
 		OnSortChange: func(sortBy string) {
 			a.profileSort = sortBy
@@ -171,6 +189,9 @@ func (a *app) viewProfile(c *ui.Context) {
 		},
 		OnWatchVideo: func(v pages.VideoItem) {
 			a.openPlayer(v.ID)
+		},
+		OnDownloadVideo: func(v pages.VideoItem) {
+			a.downloadSingleVideo(v.ID)
 		},
 	})
 }

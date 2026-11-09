@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,4 +116,62 @@ func (a *app) downloadSidecars(cfg *config.Config, videoURL, videoPath string) e
 	args = append(args, "-o", base+".%(ext)s", videoURL)
 	cmd := exec.CommandContext(ctx, a.ytDLPBin(cfg), args...)
 	return cmd.Run()
+}
+
+// downloadSingleVideo downloads one video by ID (the per-card Download
+// button) via tikdownloader.io, applying the naming template, sidecars,
+// per-uploader folder, and per-video timeout like the batch worker.
+func (a *app) downloadSingleVideo(id int64) {
+	var cur video
+	found := false
+	for _, v := range a.videos {
+		if v.id == id {
+			cur = v
+			found = true
+			break
+		}
+	}
+	if !found || cur.url == "" {
+		return
+	}
+	if cur.status == "done" || cur.status == "downloading" {
+		return
+	}
+	cfg := a.cfg
+	if cfg == nil {
+		cfg = defaultConfig()
+	}
+	outDir := a.effectiveOutputDir()
+	if cfg.SaveByUsername && a.currentProfile != nil && a.currentProfile.name != "" {
+		outDir = filepath.Join(outDir, sanitizeSegment(a.currentProfile.name))
+		_ = os.MkdirAll(outDir, 0o755)
+	}
+	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, effectiveTikFormat(cfg), cfg.EffectiveConnectionsPerDownload())
+	meta := tikdownloader.VideoMeta{ID: strconv.FormatInt(id, 10), Title: cur.title}
+	if a.currentProfile != nil {
+		meta.Uploader = a.currentProfile.name
+	}
+	a.onUI(func() { a.setVideoStatus(id, "downloading") })
+	go func() {
+		a.waitWhilePaused()
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.PerVideoTimeout)
+		defer cancel()
+		result, err := dl.DownloadVideo(ctx, cur.url, outDir)
+		if err != nil {
+			if a.db != nil {
+				a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)
+			}
+			a.onUI(func() { a.setVideoStatus(id, "failed") })
+			return
+		}
+		finalPath := a.renameWithTemplate(cfg, result.Path, meta)
+		_ = a.downloadSidecars(cfg, cur.url, finalPath)
+		if a.db != nil {
+			a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", finalPath, id)
+		}
+		a.onUI(func() {
+			a.setVideoDone(id, finalPath)
+			go a.ensureThumbnail(id, finalPath)
+		})
+	}()
 }
