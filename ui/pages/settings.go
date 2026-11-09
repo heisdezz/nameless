@@ -41,6 +41,7 @@ type SettingsProps struct {
 	OnResetDefaults      func()
 	OnSelectAccentPreset func(hex string)
 	OnSelectSpacing      func(spacing string)
+	SaveByUsername       *bool
 }
 
 // RenderSettings renders the comprehensive, modern shadcn-styled settings page.
@@ -104,6 +105,19 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 						mygoui.Text(c, "Default Download Location").FontSize(12).Bold()
 						mygoui.TextInput(c, props.OutDir).Placeholder("./downloads").FillWidth()
 						mygoui.Text(c, "Folder where profiles and videos will be saved on your local machine.").TextColor(t.TextMuted).FontSize(11)
+					})
+				}
+
+				// Save by Username (output folder organization)
+				if props.SaveByUsername != nil {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+						mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
+							mygoui.Column(c).Gap(2).Children(func() {
+								mygoui.Text(c, "Save Downloads by Username").FontSize(13)
+								mygoui.Text(c, "Organize videos into subfolders named after each creator's username.").TextColor(t.TextMuted).FontSize(11)
+							})
+							mygoui.Switch(c, props.SaveByUsername)
+						})
 					})
 				}
 
@@ -450,6 +464,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 					}
 				})
 			})
+
 		})
 	})
 }

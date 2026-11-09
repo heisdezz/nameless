@@ -58,5 +58,6 @@ func (a *app) viewSettings(c *ui.Context) {
 			a.themeNew = a.cfg.Theme
 			a.themeDirty = true
 		},
+		SaveByUsername: &a.saveByUsername,
 	})
 }
