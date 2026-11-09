@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ type ProfileDetailProps struct {
 	Page             int
 	PageSize         int
 	SearchQuery      *string
+	SortBy           *string
+	OnSortChange     func(sortBy string)
 	OnPageChange     func(page int)
 	OnPageSizeChange func(size int)
 	// Animation props
@@ -57,8 +60,62 @@ type ProfileDetailProps struct {
 	OnWatchVideo   func(v VideoItem)
 }
 
-// filterAndPaginate applies search filtering and pagination to the video list.
-func filterAndPaginate(videos []VideoItem, search string, page, pageSize int) ([]VideoItem, int) {
+// sortOptions are the labels offered in the Sort select.
+var sortOptions = []string{"Default", "Newest first", "Oldest first", "Title A-Z", "Title Z-A", "Longest first", "Shortest first", "Needs attention"}
+
+// parseDurationSec parses a "M:SS" or "H:MM:SS" duration; unknown -> 0.
+func parseDurationSec(d string) int {
+	if d == "" || d == "--:--" {
+		return 0
+	}
+	parts := strings.Split(d, ":")
+	total := 0
+	for _, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return 0
+		}
+		total = total*60 + n
+	}
+	return total
+}
+
+// sortVideos returns a sorted copy (the input order is never mutated).
+// Empty/"Default" preserves the fetched order.
+func sortVideos(videos []VideoItem, sortBy string) []VideoItem {
+	if sortBy == "" || sortBy == "Default" {
+		return videos
+	}
+	out := make([]VideoItem, len(videos))
+	copy(out, videos)
+	statusRank := map[string]int{"downloading": 0, "failed": 1, "pending": 2, "paused": 3, "done": 4}
+	switch sortBy {
+	case "Newest first":
+		sort.SliceStable(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	case "Oldest first":
+		sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	case "Title A-Z":
+		sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title) })
+	case "Title Z-A":
+		sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Title) > strings.ToLower(out[j].Title) })
+	case "Longest first":
+		sort.SliceStable(out, func(i, j int) bool { return parseDurationSec(out[i].Duration) > parseDurationSec(out[j].Duration) })
+	case "Shortest first":
+		sort.SliceStable(out, func(i, j int) bool { return parseDurationSec(out[i].Duration) < parseDurationSec(out[j].Duration) })
+	case "Needs attention":
+		sort.SliceStable(out, func(i, j int) bool {
+			ri, rj := statusRank[out[i].Status], statusRank[out[j].Status]
+			if ri != rj {
+				return ri < rj
+			}
+			return out[i].ID > out[j].ID
+		})
+	}
+	return out
+}
+
+// filterAndPaginate applies search filtering, sorting, and pagination.
+func filterAndPaginate(videos []VideoItem, search, sortBy string, page, pageSize int) ([]VideoItem, int) {
 	// Apply search filter
 	filtered := videos
 	if search != "" {
@@ -70,6 +127,7 @@ func filterAndPaginate(videos []VideoItem, search string, page, pageSize int) ([
 			}
 		}
 	}
+	filtered = sortVideos(filtered, sortBy)
 
 	// Calculate total pages
 	total := len(filtered)
@@ -125,7 +183,11 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 	}
 
 	// Filter and paginate videos
-	pageVideos, totalPages := filterAndPaginate(props.Videos, search, props.Page, pageSize)
+	sortBy := ""
+	if props.SortBy != nil {
+		sortBy = *props.SortBy
+	}
+	pageVideos, totalPages := filterAndPaginate(props.Videos, search, sortBy, props.Page, pageSize)
 
 	mygoui.Scroll(c).Fill().Children(func() {
 		mygoui.Column(c).Fill().Gap(18).Padding(24).Children(func() {
@@ -179,20 +241,6 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 					})
 				}
 
-				// Search Bar
-				searchRow := mygoui.Row(c).Gap(8).AlignItems(mygoui.Center)
-				searchRow.Children(func() {
-					mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
-					searchField := mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Width(300)
-					if props.EnableAnimations {
-						searchField = searchField.Transition(mygoui.ElementTransition{
-							Duration: 200 * time.Millisecond,
-							Ease:     mygoui.EaseOut,
-							Enter:    &mygoui.Motion{Opacity: 0},
-						})
-					}
-				})
-
 				// Batch Action Toolbar
 				mygoui.Row(c).Gap(10).AlignItems(mygoui.Center).Children(func() {
 					dlBtn := mygoui.PrimaryButton(c, "").Label("Download all").Radius(6)
@@ -245,6 +293,45 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 				})
 			})
 
+			// Filter & Sort bar: search + sort + layout controls grouped
+			// in one card instead of scattered across header/sections.
+			mygoui.Column(c).FillWidth().Padding(14).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
+				mygoui.Row(c).FillWidth().Gap(14).AlignItems(mygoui.Center).Children(func() {
+					mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
+					if props.SearchQuery != nil {
+						mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Width(300)
+					}
+					// Sort
+					if props.SortBy != nil {
+						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+							mygoui.Text(c, "Sort:").FontSize(12).TextColor(t.TextMuted)
+							sel := mygoui.Select(c.Key("detail-sort-select"), props.SortBy, sortOptions).Width(140)
+							if sel.Changed() && props.OnSortChange != nil {
+								props.OnSortChange(*props.SortBy)
+							}
+						})
+					}
+					// Column count selector: 3 to 7 columns
+					if props.GridCols != nil {
+						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+							mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)
+							mygoui.Select(c.Key("detail-grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
+						})
+					}
+					// Page size selector
+					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+						mygoui.Text(c, "Per page:").FontSize(12).TextColor(t.TextMuted)
+						pageSizeStr := strconv.Itoa(pageSize)
+						sel := mygoui.Select(c.Key("detail-page-size-select"), &pageSizeStr, []string{"10", "20", "50", "100"}).Width(60)
+						if sel.Changed() && props.OnPageSizeChange != nil {
+							if n, err := strconv.Atoi(pageSizeStr); err == nil && n > 0 {
+								props.OnPageSizeChange(n)
+							}
+						}
+					})
+				})
+			})
+
 			// Loading State
 			if props.Loading {
 				// Full grid loader with overlay
@@ -284,29 +371,10 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 						mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
 							mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Text)
 							mygoui.Text(c, "Videos").Bold().FontSize(16)
-							totalFiltered, _ := filterAndPaginate(props.Videos, search, 1, len(props.Videos))
+							totalFiltered, _ := filterAndPaginate(props.Videos, search, sortBy, 1, len(props.Videos))
 							mygoui.Text(c, fmt.Sprintf("%d of %d items", len(pageVideos), len(totalFiltered))).TextColor(t.TextMuted).FontSize(12)
 						})
 
-						// Column count selector: 3 to 7 columns
-						if props.GridCols != nil {
-							mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-								mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)
-								mygoui.Select(c.Key("detail-grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
-							})
-						}
-
-						// Page size selector
-						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-							mygoui.Text(c, "Per page:").FontSize(12).TextColor(t.TextMuted)
-							pageSizeStr := strconv.Itoa(pageSize)
-							sel := mygoui.Select(c.Key("detail-page-size-select"), &pageSizeStr, []string{"10", "20", "50", "100"}).Width(60)
-							if sel.Changed() && props.OnPageSizeChange != nil {
-								if n, err := strconv.Atoi(pageSizeStr); err == nil && n > 0 {
-									props.OnPageSizeChange(n)
-								}
-							}
-						})
 					})
 
 					// Video Cards Grid (min 3 max 7 columns) with a sweep

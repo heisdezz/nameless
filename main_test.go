@@ -139,7 +139,8 @@ func TestOpenFolderUI(t *testing.T) {
 	a := &app{cfg: defaultConfig(), outDir: tmpDir}
 	a.applyProfile(profile{id: 1, name: "myprofile"}, vids)
 
-	tt := ui.NewTester(a.view, 640, 480)
+	// Taller window: the filter bar + header push the card actions down.
+	tt := ui.NewTester(a.view, 640, 720)
 
 	// Since only 1 video is done (not all), per-row button exists, but after-success button does not
 	if !tt.HasText("Open folder") {

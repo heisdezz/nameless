@@ -99,6 +99,7 @@ type app struct {
 	profileLoading  bool
 	profileLoadGen  int
 	profileSearch   string
+	profileSort     string
 	profilePage     int
 	profilePageSize int
 	thumbInflight   map[int64]bool
@@ -1218,6 +1219,7 @@ func (a *app) openProfile(p profile) {
 	a.videos = nil
 	a.profilePage = 1
 	a.profileSearch = ""
+	a.profileSort = "Default"
 	if a.profilePageSize <= 0 {
 		a.profilePageSize = 20
 	}

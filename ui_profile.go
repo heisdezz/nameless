@@ -117,19 +117,24 @@ func (a *app) viewProfile(c *ui.Context) {
 	}
 
 	pages.RenderProfileDetail(c, pages.ProfileDetailProps{
-		ProfileName:      a.currentProfile.name,
-		ProfileURL:       a.currentProfile.url,
-		Videos:           videoItems,
-		SummaryText:      summary,
-		SummaryColor:     color,
-		ShowOpenOutput:   complete && !hasFailed,
-		Downloading:      a.downloading,
-		Paused:           a.paused,
-		OverallPct:       float64(len(a.videos)),
-		GridCols:         &a.profileGridCols,
-		Page:             a.profilePage,
-		PageSize:         a.profilePageSize,
-		SearchQuery:      &a.profileSearch,
+		ProfileName:    a.currentProfile.name,
+		ProfileURL:     a.currentProfile.url,
+		Videos:         videoItems,
+		SummaryText:    summary,
+		SummaryColor:   color,
+		ShowOpenOutput: complete && !hasFailed,
+		Downloading:    a.downloading,
+		Paused:         a.paused,
+		OverallPct:     float64(len(a.videos)),
+		GridCols:       &a.profileGridCols,
+		Page:           a.profilePage,
+		PageSize:       a.profilePageSize,
+		SearchQuery:    &a.profileSearch,
+		SortBy:         &a.profileSort,
+		OnSortChange: func(sortBy string) {
+			a.profileSort = sortBy
+			a.profilePage = 1
+		},
 		EnableAnimations: true,
 		Loading:          a.profileLoading,
 		OnPageChange: func(page int) {
