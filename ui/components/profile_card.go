@@ -13,11 +13,14 @@ import (
 
 // ProfileCardProps defines inputs and callbacks for a single profile card.
 type ProfileCardProps struct {
-	ID           int64
-	Name         string
-	URL          string
-	AvatarPath   string
-	AvatarURL    string
+	ID         int64
+	Name       string
+	URL        string
+	AvatarPath string
+	AvatarURL  string
+	// Avatar is a pre-decoded bitmap (cached by the caller). When set it
+	// is used instead of reading+decoding AvatarPath every frame.
+	Avatar       *mygoui.Bitmap
 	VideosCount  int
 	DateStr      string
 	Date         time.Time // use time.Time for relative formatting
@@ -112,8 +115,8 @@ func dateAgo(t time.Time) string {
 func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 	t := c.Theme()
 
-	var bmp *mygoui.Bitmap
-	if props.AvatarPath != "" {
+	bmp := props.Avatar
+	if bmp == nil && props.AvatarPath != "" {
 		if data, err := os.ReadFile(props.AvatarPath); err == nil {
 			if b, err := mygoui.DecodeBitmap(data); err == nil {
 				bmp = b

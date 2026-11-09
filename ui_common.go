@@ -217,7 +217,7 @@ func (a *app) viewSidebar(c *ui.Context) {
 			a.screen = screenMain
 		},
 		OnProfiles: func() {
-			a.screen = screenProfilesList
+			a.showProfilesList()
 		},
 		OnSettings: func() {
 			a.enterSettings()

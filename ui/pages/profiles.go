@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"nameless/ui"
 	"nameless/ui/components"
@@ -17,18 +18,24 @@ type ProfileItem struct {
 	URL         string
 	AvatarPath  string
 	AvatarURL   string
+	Avatar      *mygoui.Bitmap
 	VideosCount int
 	DateStr     string
 }
 
 // ProfilesProps defines inputs and callbacks for the Profiles overview page.
 type ProfilesProps struct {
-	Profiles     []ProfileItem
-	GridCols     *string
-	OnNew        func()
-	OnViewVideos func(p ProfileItem)
-	OnOpenFolder func(p ProfileItem)
-	OnDelete     func(p ProfileItem)
+	Profiles         []ProfileItem
+	GridCols         *string
+	Loading          bool
+	Page             int
+	PageSize         int
+	OnPageChange     func(page int)
+	OnPageSizeChange func(size int)
+	OnNew            func()
+	OnViewVideos     func(p ProfileItem)
+	OnOpenFolder     func(p ProfileItem)
+	OnDelete         func(p ProfileItem)
 }
 
 // RenderProfiles renders the dedicated Profiles directory page with a grid of profile cards.
@@ -58,6 +65,20 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 							mygoui.Select(c.Key("grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
 						})
 					}
+					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+						mygoui.Text(c, "Per page:").FontSize(12).TextColor(t.TextMuted)
+						pageSize := props.PageSize
+						if pageSize <= 0 {
+							pageSize = 20
+						}
+						pageSizeStr := strconv.Itoa(pageSize)
+						sel := mygoui.Select(c.Key("profiles-page-size-select"), &pageSizeStr, []string{"10", "20", "50", "100"}).Width(60)
+						if sel.Changed() && props.OnPageSizeChange != nil {
+							if n, err := strconv.Atoi(pageSizeStr); err == nil && n > 0 {
+								props.OnPageSizeChange(n)
+							}
+						}
+					})
 					newBtn := mygoui.PrimaryButton(c.Key("new-profile-btn"), "").Label("+ New Download").Radius(6)
 					newBtn.Children(func() {
 						mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(2).Children(func() {
@@ -70,6 +91,21 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 					}
 				})
 			})
+
+			// Loading State (shown while the list refreshes off-thread)
+			if props.Loading {
+				mygoui.Box(c.Key("profiles-loading")).
+					FillWidth().Height(400).
+					Children(func() {
+						components.RenderLoader(c, components.LoaderProps{
+							Size:        48,
+							Text:        "Loading profiles...",
+							ShowOverlay: true,
+							Color:       t.Accent,
+						})
+					})
+				return
+			}
 
 			// Empty State
 			if len(props.Profiles) == 0 {
@@ -85,37 +121,109 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 				return
 			}
 
-			// Profiles Cards Grid (default 5 columns, min 3 max 7)
+			// Paginate so only one page of cards is laid out per frame.
+			pageSize := props.PageSize
+			if pageSize <= 0 {
+				pageSize = 20
+			}
+			page := props.Page
+			if page < 1 {
+				page = 1
+			}
+			totalPages := (len(props.Profiles) + pageSize - 1) / pageSize
+			if totalPages == 0 {
+				totalPages = 1
+			}
+			if page > totalPages {
+				page = totalPages
+			}
+			start := (page - 1) * pageSize
+			end := start + pageSize
+			if end > len(props.Profiles) {
+				end = len(props.Profiles)
+			}
+			pageProfiles := props.Profiles[start:end]
+
+			// Profiles Cards Grid (default 5 columns, min 3 max 7) with
+			// the same sweep reveal as the video grid: stagger per index.
 			mygoui.Grid(c).Columns(cols).Gap(14).FillWidth().Children(func() {
-				for _, item := range props.Profiles {
+				for idx, item := range pageProfiles {
 					p := item
 					c.Key(fmt.Sprintf("prof-card-%d", p.ID))
-					components.RenderProfileCard(c, components.ProfileCardProps{
-						ID:          p.ID,
-						Name:        p.Name,
-						URL:         p.URL,
-						AvatarPath:  p.AvatarPath,
-						AvatarURL:   p.AvatarURL,
-						VideosCount: p.VideosCount,
-						DateStr:     p.DateStr,
-						OnOpenFolder: func() {
-							if props.OnOpenFolder != nil {
-								props.OnOpenFolder(p)
-							}
+					cardBox := mygoui.Box(c).FillWidth()
+					delay := time.Duration(idx) * 25 * time.Millisecond
+					if delay > 600*time.Millisecond {
+						delay = 600 * time.Millisecond
+					}
+					cardBox = cardBox.Transition(mygoui.ElementTransition{
+						Animation: &mygoui.Animation{
+							Duration: 350 * time.Millisecond,
+							Ease:     mygoui.EaseOut,
+							Delay:    delay,
 						},
-						OnViewVideos: func() {
-							if props.OnViewVideos != nil {
-								props.OnViewVideos(p)
-							}
-						},
-						OnDelete: func() {
-							if props.OnDelete != nil {
-								props.OnDelete(p)
-							}
-						},
+						Enter: &mygoui.Motion{Opacity: 0, X: -16, Y: 10, Scale: 0.96},
+					})
+					cardBox.Children(func() {
+						components.RenderProfileCard(c, components.ProfileCardProps{
+							ID:          p.ID,
+							Name:        p.Name,
+							URL:         p.URL,
+							AvatarPath:  p.AvatarPath,
+							AvatarURL:   p.AvatarURL,
+							Avatar:      p.Avatar,
+							VideosCount: p.VideosCount,
+							DateStr:     p.DateStr,
+							OnOpenFolder: func() {
+								if props.OnOpenFolder != nil {
+									props.OnOpenFolder(p)
+								}
+							},
+							OnViewVideos: func() {
+								if props.OnViewVideos != nil {
+									props.OnViewVideos(p)
+								}
+							},
+							OnDelete: func() {
+								if props.OnDelete != nil {
+									props.OnDelete(p)
+								}
+							},
+						})
 					})
 				}
 			})
+
+			// Pagination Controls
+			if totalPages > 1 {
+				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Justify(mygoui.Center).Padding(12).Children(func() {
+					prevBtn := mygoui.Button(c, "").Label("Previous").Radius(6)
+					if page <= 1 {
+						prevBtn.Disabled(true)
+					}
+					prevBtn.Children(func() {
+						mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(4, 12).Children(func() {
+							mygoui.Icon(c, ui.IconArrowLeft).Size(14, 14)
+							mygoui.Text(c, "Previous")
+						})
+					})
+					if prevBtn.Clicked() && page > 1 && props.OnPageChange != nil {
+						props.OnPageChange(page - 1)
+					}
+					mygoui.Text(c, fmt.Sprintf("Page %d of %d", page, totalPages)).TextColor(t.TextMuted).FontSize(13)
+					nextBtn := mygoui.Button(c, "").Label("Next").Radius(6)
+					if page >= totalPages {
+						nextBtn.Disabled(true)
+					}
+					nextBtn.Children(func() {
+						mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(4, 12).Children(func() {
+							mygoui.Text(c, "Next")
+						})
+					})
+					if nextBtn.Clicked() && page < totalPages && props.OnPageChange != nil {
+						props.OnPageChange(page + 1)
+					}
+				})
+			}
 		})
 	})
 }

@@ -12,8 +12,8 @@
   "theme": {
     "accent": "#fafafa",
     "dark": true,
-    "radius": 8,
-    "spacing": 4
+    "radius": 14,
+    "spacing": 5
   },
   "tikdownloader": {
     "api_endpoint": "https://tikdownloader.io",

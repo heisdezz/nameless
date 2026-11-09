@@ -103,6 +103,16 @@ type app struct {
 	profilePageSize int
 	thumbInflight   map[int64]bool
 
+	// Profiles list state: cached per-profile video counts (one GROUP BY
+	// query instead of a query per card per frame), decoded avatar cache,
+	// and async loading/pagination state mirroring the profile page.
+	profileCounts    map[int64]int
+	avatarCache      map[int64]*ui.Bitmap
+	avatarInflight   map[int64]bool
+	profilesLoading  bool
+	profilesPage     int
+	profilesPageSize int
+
 	// settings UI mirrors: persistent bindings for float/slider and
 	// duration inputs (ui.Slider binds *float64; durations bind as text).
 	// Owned by WS-D; see progress.md contract changes.
@@ -346,6 +356,7 @@ func (a *app) deleteProfile(profileID int64) {
 		a.videos = nil
 		a.screen = screenProfilesList
 	}
+	a.refreshProfileCounts()
 	a.showToast("Profile Removed", "Profile was deleted from archive", "info")
 }
 
@@ -693,6 +704,87 @@ func (a *app) checkYtdlpUpdate() {
 	go body()
 }
 
+// refreshProfileCounts recomputes per-profile video counts with a single
+// GROUP BY query. Called on startup and when the profiles list is shown,
+// never per frame.
+func (a *app) refreshProfileCounts() {
+	a.profileCounts = make(map[int64]int)
+	if a.db == nil {
+		return
+	}
+	rows, err := a.db.Query("SELECT profile_id, COUNT(*) FROM videos GROUP BY profile_id")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, n int64
+		if err := rows.Scan(&id, &n); err == nil {
+			a.profileCounts[id] = int(n)
+		}
+	}
+}
+
+// showProfilesList navigates to the profiles directory, refreshing the
+// list and counts off the UI thread behind the loading state.
+func (a *app) showProfilesList() {
+	a.screen = screenProfilesList
+	a.profilesLoading = true
+	if a.profilesPageSize <= 0 {
+		a.profilesPageSize = 20
+	}
+	go func() {
+		a.loadProfiles()
+		a.onUI(func() { a.profilesLoading = false })
+	}()
+}
+
+// loadAvatar decodes one profile avatar into the cache (once, in-flight
+// guarded) and kicks a redraw. Replaces per-frame file reads in the view.
+func (a *app) loadAvatar(id int64, avatarPath string) {
+	if avatarPath == "" {
+		return
+	}
+	a.mu.Lock()
+	if a.avatarCache != nil {
+		if _, ok := a.avatarCache[id]; ok {
+			a.mu.Unlock()
+			return
+		}
+	}
+	if a.avatarInflight == nil {
+		a.avatarInflight = make(map[int64]bool)
+	}
+	if a.avatarInflight[id] {
+		a.mu.Unlock()
+		return
+	}
+	a.avatarInflight[id] = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.avatarInflight, id)
+		a.mu.Unlock()
+	}()
+	data, err := os.ReadFile(avatarPath)
+	if err != nil {
+		return
+	}
+	bmp, err := ui.DecodeBitmap(data)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	if a.avatarCache == nil {
+		a.avatarCache = make(map[int64]*ui.Bitmap)
+	}
+	a.avatarCache[id] = bmp
+	a.mu.Unlock()
+	if a.win != nil {
+		a.win.Update(func() {})
+	}
+}
+
 // loadProfiles reads the profile list. UI thread only.
 func (a *app) loadProfiles() {
 	if a.db == nil {
@@ -712,6 +804,13 @@ func (a *app) loadProfiles() {
 			return
 		}
 		a.profiles = append(a.profiles, p)
+	}
+	rows.Close()
+	a.refreshProfileCounts()
+	for _, p := range a.profiles {
+		if p.avatarPath != "" {
+			go a.loadAvatar(p.id, p.avatarPath)
+		}
 	}
 }
 

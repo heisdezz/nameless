@@ -15,6 +15,12 @@ func (a *app) viewProfilesList(c *ui.Context) {
 		a.gridCols = "5"
 	}
 
+	// Counts come from the one-query cache (refreshProfileCounts), not a
+	// DB query per card per frame. Avatars come from the decode cache.
+	a.mu.Lock()
+	counts := a.profileCounts
+	avatars := a.avatarCache
+	a.mu.Unlock()
 	items := make([]pages.ProfileItem, len(a.profiles))
 	for i, p := range a.profiles {
 		items[i] = pages.ProfileItem{
@@ -23,13 +29,24 @@ func (a *app) viewProfilesList(c *ui.Context) {
 			URL:         p.url,
 			AvatarPath:  p.avatarPath,
 			AvatarURL:   p.avatarURL,
-			VideosCount: a.profileVideosCount(p.id),
+			Avatar:      avatars[p.id],
+			VideosCount: counts[p.id],
 		}
 	}
 
 	pages.RenderProfiles(c, pages.ProfilesProps{
 		Profiles: items,
 		GridCols: &a.gridCols,
+		Loading:  a.profilesLoading,
+		Page:     a.profilesPage,
+		PageSize: a.profilesPageSize,
+		OnPageChange: func(page int) {
+			a.profilesPage = page
+		},
+		OnPageSizeChange: func(size int) {
+			a.profilesPageSize = size
+			a.profilesPage = 1
+		},
 		OnNew: func() {
 			a.screen = screenMain
 		},
@@ -122,7 +139,7 @@ func (a *app) viewProfile(c *ui.Context) {
 			a.profilePage = 1
 		},
 		OnBack: func() {
-			a.screen = screenProfilesList
+			a.showProfilesList()
 		},
 		OnDownloadAll: func() {
 			a.startDownload()
