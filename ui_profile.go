@@ -48,6 +48,7 @@ func (a *app) viewProfilesList(c *ui.Context) {
 			a.profilesPage = 1
 		},
 		OnNew: func() {
+			a.stopPlayer()
 			a.screen = screenMain
 		},
 		OnViewVideos: func(p pages.ProfileItem) {

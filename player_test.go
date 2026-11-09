@@ -193,3 +193,39 @@ func TestPlayerExternalPlayback(t *testing.T) {
 		t.Errorf("expected error toast for empty path")
 	}
 }
+
+func TestStopPlayerOnNavigationExits(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	a.initDB()
+	vids := []video{{id: 10, title: "First Track", status: "done", path: "/tmp/vid10.mp4"}}
+	a.applyProfile(profile{id: 1, name: "music_maker"}, vids)
+	a.openPlayer(10)
+	if a.screen != screenPlayer {
+		t.Fatalf("expected screenPlayer, got %v", a.screen)
+	}
+	// stopPlayer must be safe with no real player (file missing) and
+	// must clear fullscreen state.
+	a.playerFullScreen = true
+	a.stopPlayer()
+	if a.playerFullScreen {
+		t.Fatal("stopPlayer should exit fullscreen")
+	}
+	// applyProfile (profile navigation) must also stop the player.
+	a.playerFullScreen = true
+	a.applyProfile(profile{id: 1, name: "music_maker"}, vids)
+	if a.playerFullScreen {
+		t.Fatal("applyProfile should exit fullscreen / stop player")
+	}
+	if a.screen != screenProfile {
+		t.Fatalf("expected screenProfile after applyProfile, got %v", a.screen)
+	}
+	// enterSettings must also stop the player.
+	a.playerFullScreen = true
+	a.enterSettings()
+	if a.playerFullScreen {
+		t.Fatal("enterSettings should exit fullscreen / stop player")
+	}
+	if a.screen != screenSettings {
+		t.Fatalf("expected screenSettings, got %v", a.screen)
+	}
+}

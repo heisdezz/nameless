@@ -79,9 +79,7 @@ func (a *app) view(c *ui.Context) {
 				a.exitPlayerFullScreen()
 				return
 			}
-			if a.player != nil {
-				a.player.Pause()
-			}
+			a.stopPlayer()
 			a.screen = screenProfile
 		default:
 			a.screen = screenMain
@@ -214,15 +212,19 @@ func (a *app) viewSidebar(c *ui.Context) {
 		Filter:       &a.sidebarFilter,
 		EngineStatus: a.ytdlpVersion,
 		OnHome: func() {
+			a.stopPlayer()
 			a.screen = screenMain
 		},
 		OnProfiles: func() {
+			a.stopPlayer()
 			a.showProfilesList()
 		},
 		OnSettings: func() {
+			a.stopPlayer()
 			a.enterSettings()
 		},
 		OnSelectProfile: func(id int64) {
+			a.stopPlayer()
 			for _, p := range a.profiles {
 				if p.id == id {
 					a.openProfile(p)

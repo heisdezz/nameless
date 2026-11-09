@@ -61,6 +61,17 @@ func (a *app) syncPlayer() {
 	a.playerPath = cur.path
 }
 
+// stopPlayer pauses playback (keeping position so returning to the same
+// video resumes) and leaves fullscreen. It MUST run on every route out
+// of the player screen — the media backend keeps playing audio even
+// when the Video widget is no longer rendered.
+func (a *app) stopPlayer() {
+	if a.player != nil {
+		a.player.Pause()
+	}
+	a.exitPlayerFullScreen()
+}
+
 // shuffleRandomVideos selects up to 8 random video IDs from the current profile excluding currentVideoID.
 func (a *app) shuffleRandomVideos() {
 	if len(a.videos) <= 1 {
@@ -86,6 +97,7 @@ func (a *app) shuffleRandomVideos() {
 // viewPlayer renders the inner video player screen.
 func (a *app) viewPlayer(c *ui.Context) {
 	if a.currentProfile == nil || len(a.videos) == 0 {
+		a.stopPlayer()
 		a.screen = screenProfilesList
 		return
 	}
@@ -235,10 +247,7 @@ func (a *app) viewPlayer(c *ui.Context) {
 		TotalTime:   totTimeStr,
 		FullScreen:  a.playerFullScreen,
 		OnBack: func() {
-			a.exitPlayerFullScreen()
-			if a.player != nil {
-				a.player.Pause()
-			}
+			a.stopPlayer()
 			a.screen = screenProfile
 		},
 		OnPlayPause: func() {

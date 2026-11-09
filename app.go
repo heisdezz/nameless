@@ -352,6 +352,7 @@ func (a *app) deleteProfile(profileID int64) {
 		}
 	}
 	if a.currentProfile != nil && a.currentProfile.id == profileID {
+		a.stopPlayer()
 		a.currentProfile = nil
 		a.videos = nil
 		a.screen = screenProfilesList
@@ -395,6 +396,7 @@ func (a *app) profileImage(p profile) ui.ImageSource {
 
 // enterSettings prepares the settings bindings before the screen is shown.
 func (a *app) enterSettings() {
+	a.stopPlayer() // leaving the player screen (if we were on it)
 	if a.cfg == nil {
 		a.cfg = defaultConfig()
 	}
@@ -834,6 +836,7 @@ func (a *app) loadVideos(profileID int64) []video {
 
 // applyProfile switches to the profile screen. UI thread only.
 func (a *app) applyProfile(p profile, vids []video) {
+	a.stopPlayer() // leaving the player screen (if we were on it)
 	pcopy := p
 	a.currentProfile = &pcopy
 	a.screen = screenProfile
