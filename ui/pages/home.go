@@ -81,13 +81,30 @@ func RenderHome(c *mygoui.Context, props HomeProps) {
 				})
 				if props.Fetching {
 					fetchBtn.Disabled(true)
-				}
-				if fetchBtn.Clicked() && props.OnFetch != nil {
+					// Show loading spinner instead of button label
+					mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(2).Children(func() {
+						mygoui.Icon(c, ui.IconDownload).Size(14, 14)
+						mygoui.Text(c, "Fetching...").FontSize(13).Bold()
+					})
+				} else if props.FetchErr != "" {
+					fetchBtn.Disabled(true)
+					// Show retry button on error
+					fetchBtn = mygoui.Button(c.Key("retry-fetch-btn"), "").Label("Retry").Radius(6)
+					fetchBtn.Children(func() {
+						mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(2).Children(func() {
+							mygoui.Icon(c, ui.IconRefresh).Size(14, 14)
+							mygoui.Text(c, "Retry").FontSize(13)
+						})
+					})
+					if fetchBtn.Clicked() && props.OnFetch != nil {
+						props.OnFetch()
+					}
+				} else if fetchBtn.Clicked() && props.OnFetch != nil {
 					props.OnFetch()
 				}
 			})
 
-			if props.FetchErr != "" {
+			if props.FetchErr != "" && !props.Fetching {
 				mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Children(func() {
 					mygoui.Icon(c, ui.IconAlert).Size(14, 14).TextColor(ui.ErrColor())
 					mygoui.Text(c, props.FetchErr).TextColor(ui.ErrColor()).FontSize(12)
@@ -186,7 +203,7 @@ func RenderHome(c *mygoui.Context, props HomeProps) {
 								mygoui.Text(c, sub).TextColor(t.TextMuted).FontSize(11)
 							})
 							if props.OnOpenFolder != nil {
-								if mygoui.Button(c, "Open folder").Radius(6).Clicked() {
+								if mygoui.Button(c.Key(fmt.Sprintf("open-folder-%d", vid.ID)), "Open folder").Radius(6).Clicked() {
 									props.OnOpenFolder(vid.Path)
 								}
 							}

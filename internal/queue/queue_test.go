@@ -8,7 +8,7 @@ import (
 
 	"nameless/internal/config"
 	"nameless/internal/store"
-	"nameless/internal/ytdlp"
+	"nameless/internal/tikdownloader"
 )
 
 type fakeStore struct {
@@ -73,12 +73,11 @@ func (s *fakeStore) FailedVideos(profileID int64) ([]store.Video, error) {
 
 type fakeDownloader struct{}
 
-func (d *fakeDownloader) Download(ctx context.Context, cfg *config.Config, videoURL, outDir string, onProgress ytdlp.ProgressFunc) (string, error) {
-	if onProgress != nil {
-		onProgress(ytdlp.Progress{Pct: 100, Downloaded: 1024, Total: 1024})
-	}
-	return outDir + "/video.mp4", nil
+func (d *fakeDownloader) DownloadVideo(ctx context.Context, videoURL, outDir string) (*tikdownloader.DownloadResult, error) {
+	return &tikdownloader.DownloadResult{Success: true, Path: outDir + "/video.mp4"}, nil
 }
+
+func (d *fakeDownloader) GetSupportedFormats() []string { return []string{"mp4"} }
 
 func TestQueuePauseResumeRace(t *testing.T) {
 	fs := &fakeStore{

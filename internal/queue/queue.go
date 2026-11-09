@@ -1,8 +1,3 @@
-// Package queue manages the download worker pool: pause/resume/retry and
-// event emission for the UI.
-//
-// Owned by workstream C (progress.md). Contract: docs/implementation-plan.md §3.
-// M0 skeleton: methods panic with ErrNotImplemented until C1–C3 land.
 package queue
 
 import (
@@ -14,7 +9,7 @@ import (
 
 	"nameless/internal/config"
 	"nameless/internal/store"
-	"nameless/internal/ytdlp"
+	"nameless/internal/tikdownloader"
 )
 
 // ErrNotImplemented marks skeleton bodies; workstream C replaces them.
@@ -39,37 +34,40 @@ type Store interface {
 }
 
 // Downloader is the consumer-side engine interface the queue needs.
+// It matches tikdownloader.Downloader (yt-dlp is only used to fetch
+// profile metadata; files themselves come via tikdownloader.io).
 type Downloader interface {
-	Download(ctx context.Context, cfg *config.Config, videoURL, outDir string, onProgress ytdlp.ProgressFunc) (string, error)
+	DownloadVideo(ctx context.Context, videoURL, outDir string) (*tikdownloader.DownloadResult, error)
+	GetSupportedFormats() []string
 }
 
 // Manager manages a pool of download workers with pause/resume/retry support.
 type Manager struct {
-	st         Store
-	dl         Downloader
-	cfg        *config.Config
-	events     chan Event // bi-directional for drain; send-only used externally
-	stopCh     chan struct{}
-	pausedCh   chan struct{}
-	workerWG   sync.WaitGroup // goroutine lifecycle
-	mu         sync.Mutex
-	cond       *sync.Cond // wake workers on resume
-	running    bool
-	paused     bool
-	profileID  int64
+	st        Store
+	dl        tikdownloader.Downloader
+	cfg       *config.Config
+	events    chan Event // bi-directional for drain; send-only used externally
+	stopCh    chan struct{}
+	pausedCh  chan struct{}
+	workerWG  sync.WaitGroup // goroutine lifecycle
+	mu        sync.Mutex
+	cond      *sync.Cond // wake workers on resume
+	running   bool
+	paused    bool
+	profileID int64
 }
 
 // New creates a new Manager with the given store, downloader, config, and
 // event channel. Events are sent on the channel as videos progress.
-func New(st Store, dl Downloader, cfg *config.Config, events chan Event) *Manager {
+func New(st Store, dl tikdownloader.Downloader, cfg *config.Config, events chan Event) *Manager {
 	m := &Manager{
-		st:      st,
-		dl:      dl,
-		cfg:     cfg,
-		events:  events,
-		stopCh:  make(chan struct{}),
+		st:       st,
+		dl:       dl,
+		cfg:      cfg,
+		events:   events,
+		stopCh:   make(chan struct{}),
 		pausedCh: make(chan struct{}, 1),
-		running: true,
+		running:  true,
 	}
 	m.cond = sync.NewCond(&m.mu)
 	return m
@@ -139,10 +137,8 @@ func (m *Manager) Close() {
 // runWorkers launches cfg.Workers concurrent download workers that loop
 // pulling videos from the pending queue, pacing with cfg.Delay between launches.
 func (m *Manager) runWorkers(profileID int64, outDir string) {
-	workers := m.cfg.Workers
-	if workers <= 0 {
-		workers = 3
-	}
+	// Concurrent downloads: default 3, max 5 (see config.MaxWorkers).
+	workers := m.cfg.EffectiveConcurrentDownloads()
 	// Launch worker goroutines.
 	for i := 0; i < workers; i++ {
 		m.workerWG.Add(1)

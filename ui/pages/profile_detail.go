@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"strconv"
 
 	"nameless/ui"
 
@@ -10,12 +11,14 @@ import (
 
 // VideoItem represents a video in the profile's video queue.
 type VideoItem struct {
-	ID     int64
-	URL    string
-	Title  string
-	Status string // done/downloading/failed/pending/paused
-	Path   string
-	Pct    float64
+	ID        int64
+	URL       string
+	Title     string
+	Status    string // done/downloading/failed/pending/paused
+	Path      string
+	Pct       float64
+	Duration  string
+	Thumbnail *mygoui.Bitmap
 }
 
 // ProfileDetailProps defines inputs and callbacks for the Profile Detail screen.
@@ -29,6 +32,7 @@ type ProfileDetailProps struct {
 	Downloading    bool
 	Paused         bool
 	OverallPct     float64
+	GridCols       *string
 	OnBack         func()
 	OnDownloadAll  func()
 	OnPause        func()
@@ -36,13 +40,22 @@ type ProfileDetailProps struct {
 	OnRetryFailed  func()
 	OnOpenOutput   func()
 	OnOpenVideoDir func(path string)
+	OnWatchVideo   func(v VideoItem)
 }
 
 // RenderProfileDetail renders the detailed profile video queue and batch actions.
 func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 	t := c.Theme()
+
+	cols := 4
+	if props.GridCols != nil && *props.GridCols != "" {
+		if val, err := strconv.Atoi(*props.GridCols); err == nil && val >= 3 && val <= 7 {
+			cols = val
+		}
+	}
+
 	mygoui.Scroll(c).Fill().Children(func() {
-		mygoui.Column(c).Fill().Gap(14).Padding(24).Children(func() {
+		mygoui.Column(c).Fill().Gap(18).Padding(24).Children(func() {
 			// Profile Header Card
 			mygoui.Column(c).FillWidth().Padding(18).Gap(12).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
 				mygoui.Row(c).AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
@@ -153,50 +166,52 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 					mygoui.Text(c, "No videos found — the account may be private; try cookies in Settings").TextColor(t.TextMuted).FontSize(13)
 				})
 			} else {
-				// Videos Section Header
+				// Videos Section Header with Columns selector (options to change columns min 3 max 7)
 				mygoui.Row(c).AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
 					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
 						mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Text)
 						mygoui.Text(c, "Videos").Bold().FontSize(16)
+						mygoui.Text(c, fmt.Sprintf("%d items", len(props.Videos))).TextColor(t.TextMuted).FontSize(12)
 					})
-					mygoui.Text(c, fmt.Sprintf("%d items", len(props.Videos))).TextColor(t.TextMuted).FontSize(12)
+
+					// Column count selector: 3 to 7 columns
+					if props.GridCols != nil {
+						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+							mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)
+							mygoui.Select(c.Key("detail-grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
+						})
+					}
 				})
 
-				// Video Items List
-				for _, item := range props.Videos {
-					v := item
-					c.Key(fmt.Sprintf("vid-%d", v.ID))
-					mygoui.Row(c).FillWidth().Padding(12).Gap(10).Radius(6).Background(t.Surface).Border(1, t.Border).AlignItems(mygoui.Center).Children(func() {
-						switch v.Status {
-						case "done":
-							mygoui.Icon(c, ui.IconCheck).Size(16, 16).TextColor(t.Success)
-						case "downloading":
-							mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Accent)
-						case "failed":
-							mygoui.Icon(c, ui.IconAlert).Size(16, 16).TextColor(t.Danger)
-						default:
-							mygoui.Icon(c, ui.IconDownload).Size(16, 16).TextColor(t.TextMuted)
-						}
-
-						mygoui.Column(c).Fill().Gap(2).Children(func() {
-							mygoui.Text(c, v.Title).FontSize(13).Bold()
-							mygoui.Text(c, v.Status).TextColor(t.TextMuted).FontSize(11)
+				// Video Cards Grid (min 3 max 7 columns)
+				mygoui.Grid(c).Columns(cols).Gap(14).FillWidth().Children(func() {
+					for i, item := range props.Videos {
+						v := item
+						idx := i
+						c.Key(fmt.Sprintf("vid-card-item-%d", v.ID))
+						ui.RenderVideoCard(c, ui.VideoCardProps{
+							ID:        v.ID,
+							Index:     idx,
+							Title:     v.Title,
+							URL:       v.URL,
+							Status:    v.Status,
+							Path:      v.Path,
+							Duration:  v.Duration,
+							Pct:       v.Pct,
+							Thumbnail: v.Thumbnail,
+							OnWatch: func() {
+								if props.OnWatchVideo != nil {
+									props.OnWatchVideo(v)
+								}
+							},
+							OnOpenFolder: func() {
+								if props.OnOpenVideoDir != nil {
+									props.OnOpenVideoDir(v.Path)
+								}
+							},
 						})
-
-						if v.Status == "done" {
-							openBtn := mygoui.Button(c, "").Label("Open folder").Radius(6)
-							openBtn.Children(func() {
-								mygoui.Row(c).Gap(4).AlignItems(mygoui.Center).Children(func() {
-									mygoui.Icon(c, ui.IconFolder).Size(13, 13)
-									mygoui.Text(c, "Open folder")
-								})
-							})
-							if openBtn.Clicked() && props.OnOpenVideoDir != nil {
-								props.OnOpenVideoDir(v.Path)
-							}
-						}
-					})
-				}
+					}
+				})
 			}
 		})
 	})

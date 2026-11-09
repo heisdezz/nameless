@@ -18,17 +18,18 @@ type ProfileCardProps struct {
 	AvatarURL    string
 	VideosCount  int
 	DateStr      string
+	Date         time.Time // use time.Time for relative formatting
 	OnViewVideos func()
 	OnOpenFolder func()
 	OnDelete     func()
 }
 
 // formatSubtitle formats a clean path/handle for the profile without showing the full URL.
-func formatSubtitle(url, name string) string {
+func formatSubtitle(url, name string, preferHandle bool) string {
 	if name != "" {
 		return "media/profiles/" + name
 	}
-	if strings.Contains(url, "@") {
+	if preferHandle && strings.Contains(url, "@") {
 		idx := strings.Index(url, "@")
 		sub := url[idx:]
 		if s := strings.Index(sub, "/"); s > 0 {
@@ -39,7 +40,73 @@ func formatSubtitle(url, name string) string {
 	return "media/profiles"
 }
 
-// RenderProfileCard renders a sleek media card for an archived profile in the grid.
+// dateAgo returns a human-readable relative date string like "2 weeks ago"
+// or a formatted date if the time is more than 1 year in the past.
+func dateAgo(t time.Time) string {
+	if t.IsZero() {
+		return time.Now().Format("01/02/2006")
+	}
+	now := time.Now()
+	diff := now.Sub(t)
+
+	if diff < 0 {
+		return t.Format("01/02/2006")
+	}
+
+	years := int(diff.Hours() / 8760)
+	if years > 0 {
+		if years == 1 {
+			return "1 year ago"
+		}
+		return fmt.Sprintf("%d years ago", years)
+	}
+
+	months := int(diff.Hours() / 730)
+	if months > 0 {
+		if months == 1 {
+			return "1 month ago"
+		}
+		return fmt.Sprintf("%d months ago", months)
+	}
+
+	weeks := int(diff.Hours() / 168)
+	if weeks > 0 {
+		if weeks == 1 {
+			return "1 week ago"
+		}
+		return fmt.Sprintf("%d weeks ago", weeks)
+	}
+
+	days := int(diff.Hours() / 24)
+	if days > 0 {
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
+
+	hours := int(diff.Hours())
+	if hours > 0 {
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	}
+
+	minutes := int(diff.Minutes())
+	if minutes > 0 {
+		if minutes == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", minutes)
+	}
+
+	return "just now"
+}
+
+// RenderProfileCard renders a sleek media card for an archived profile in the grid,
+// matching the card reference: portrait cover, item-count badge bottom-right,
+// title/path subtitle, and a bottom meta row with date + pencil/trash icons.
 func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 	t := c.Theme()
 
@@ -54,21 +121,24 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 
 	dateStr := props.DateStr
 	if dateStr == "" {
-		dateStr = time.Now().Format("02/01/2006")
+		if !props.Date.IsZero() {
+			dateStr = dateAgo(props.Date)
+		} else {
+			dateStr = time.Now().Format("02/01/2006")
+		}
 	}
-
-	subtitle := formatSubtitle(props.URL, props.Name)
+	subtitle := formatSubtitle(props.URL, props.Name, true)
 
 	mygoui.Column(c).FillWidth().Radius(12).Background(t.Surface).Border(1, t.Border).Clip().Children(func() {
-		// 1. Top Cover Thumbnail / Banner
-		coverBox := mygoui.Box(c.Key(fmt.Sprintf("card-cover-%d", props.ID))).FillWidth().Height(110).Background(mygoui.Hex("#1c1c20")).Clip()
+		// 1. Top Cover Thumbnail / Banner (portrait, matches ref/card_ref.png)
+		coverBox := mygoui.Box(c.Key(fmt.Sprintf("card-cover-%d", props.ID))).FillWidth().Height(160).Background(mygoui.Hex("#1c1c20")).Clip()
 		coverBox.Children(func() {
 			if bmp != nil {
-				mygoui.Image(c, bmp).FillWidth().Height(110).Clip()
+				mygoui.Image(c, bmp).FillWidth().Height(160).Clip()
 			} else {
 				// Fallback cover placeholder
 				mygoui.Column(c).Fill().Center().Background(mygoui.Hex("#18181c")).Children(func() {
-					mygoui.Avatar(c, props.Name, nil).Size(46, 46)
+					mygoui.Avatar(c, props.Name, nil).Size(52, 52)
 				})
 			}
 
@@ -83,51 +153,53 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 			props.OnViewVideos()
 		}
 
-		// 2. Card Content Area
-		mygoui.Column(c).FillWidth().Padding(12).Gap(8).Children(func() {
+		// 2. Card Content Area — title, path, and bottom meta row (no bulky action buttons)
+		mygoui.Column(c).FillWidth().Padding(10, 12).Gap(2).Children(func() {
 			// Title & Subtitle
 			mygoui.Column(c).FillWidth().Gap(2).Children(func() {
-				titleEl := mygoui.Text(c, props.Name).Bold().FontSize(14).TextColor(t.Text).SingleLine()
+				titleEl := mygoui.Text(c, props.Name).Bold().FontSize(13).TextColor(t.Text).SingleLine()
 				if titleEl.Clicked() && props.OnViewVideos != nil {
 					props.OnViewVideos()
 				}
-				mygoui.Text(c, subtitle).TextColor(t.TextMuted).FontSize(11).SingleLine()
+				mygoui.Text(c, subtitle).TextColor(t.TextMuted).FontSize(10).SingleLine()
 			})
 
-			// Date and Delete row
+			// Spacer
+			mygoui.Column(c).Fill().Children(func() {})
+
+			// Bottom row: date on left, pencil + trash icons on right
 			mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
 				mygoui.Row(c).AlignItems(mygoui.Center).Gap(4).Children(func() {
-					mygoui.Icon(c, IconCalendar).Size(11, 11).TextColor(t.TextMuted)
-					mygoui.Text(c, dateStr).FontSize(11).TextColor(t.TextMuted)
+					mygoui.Icon(c, IconCalendar).Size(9, 9).TextColor(t.TextMuted)
+					mygoui.Text(c, dateStr).FontSize(9).TextColor(t.TextMuted)
 				})
-				if props.OnDelete != nil {
-					delBtn := mygoui.Button(c.Key(fmt.Sprintf("card-del-%d", props.ID)), "").
-						Label("Delete").
-						Radius(4).
-						Background(t.Surface)
-					delBtn.Children(func() {
-						mygoui.Row(c).Fill().Center().Children(func() {
-							mygoui.Icon(c, IconTrash).Size(12, 12).TextColor(mygoui.Hex("#ef4444"))
-						})
-					})
-					if delBtn.Clicked() {
-						props.OnDelete()
-					}
-				}
-			})
 
-			// Action Buttons Stacked Vertically to prevent horizontal overflow in 3-7 column grids
-			mygoui.Column(c).FillWidth().Gap(6).Children(func() {
-				if props.OnViewVideos != nil {
-					if mygoui.PrimaryButton(c.Key(fmt.Sprintf("card-view-%d", props.ID)), "View Videos").FillWidth().Height(28).Radius(6).Clicked() {
-						props.OnViewVideos()
+				mygoui.Row(c).Gap(4).AlignItems(mygoui.Center).Children(func() {
+					if props.OnOpenFolder != nil {
+						folderBtn := mygoui.Button(c.Key(fmt.Sprintf("card-folder-%d", props.ID)), "").
+							Radius(6).Background(t.Surface)
+						folderBtn.Children(func() {
+							mygoui.Row(c).Fill().Center().Children(func() {
+								mygoui.Icon(c, IconPencil).Size(11, 11).TextColor(t.TextMuted)
+							})
+						})
+						if folderBtn.Clicked() {
+							props.OnOpenFolder()
+						}
 					}
-				}
-				if props.OnOpenFolder != nil {
-					if mygoui.Button(c.Key(fmt.Sprintf("card-folder-%d", props.ID)), "Open folder").FillWidth().Height(26).Radius(6).Clicked() {
-						props.OnOpenFolder()
+					if props.OnDelete != nil {
+						delBtn := mygoui.Button(c.Key(fmt.Sprintf("card-del-%d", props.ID)), "").
+							Radius(6).Background(t.Surface)
+						delBtn.Children(func() {
+							mygoui.Row(c).Fill().Center().Children(func() {
+								mygoui.Icon(c, IconTrash).Size(11, 11).TextColor(mygoui.Hex("#ef4444"))
+							})
+						})
+						if delBtn.Clicked() {
+							props.OnDelete()
+						}
 					}
-				}
+				})
 			})
 		})
 	})

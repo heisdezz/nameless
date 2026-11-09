@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"nameless/internal/config"
+	"nameless/internal/tikdownloader"
 	"nameless/internal/ytdlp"
 
 	"github.com/egoist/mygo"
@@ -31,14 +33,18 @@ const (
 	screenProfile
 	screenSettings
 	screenProfilesList
+	screenPlayer
 )
 
 type video struct {
-	id     int64
-	url    string
-	title  string
-	status string // pending/downloading/done/failed/paused
-	path   string
+	id         int64
+	url        string
+	title      string
+	status     string // pending/downloading/done/failed/paused
+	path       string
+	pct        float64
+	downloaded int64
+	total      int64
 }
 
 type profile struct {
@@ -90,27 +96,72 @@ type app struct {
 	// settings UI mirrors: persistent bindings for float/slider and
 	// duration inputs (ui.Slider binds *float64; durations bind as text).
 	// Owned by WS-D; see progress.md contract changes.
-	radiusF64  float64
-	workersF64 float64
-	spacingSel string
-	delayStr   string
-	timeoutStr string
+	radiusF64      float64
+	workersF64     float64 // concurrent downloads (1..5, default 3)
+	connectionsF64 float64 // connections per download (default 5)
+	spacingSel     string
+	delayStr       string
+	timeoutStr     string
 
 	// yt-dlp detection state for the Settings screen (WS-D); ytdlpVersion
 	// is filled by a background Detect and shown via win.Update.
 	ytdlpVersion string
 	ytdlpMissing bool
 	detecting    bool
+	ytdlBin      ytdlp.Binary
+
+	// App-managed yt-dlp: binDir is nameless-owned storage for the
+	// self-downloaded binary (config "ytdlp_path"); ytdlpInstalling guards
+	// the background download; ytdlpInstallStatus/UpdateAvailable reflect
+	// Settings/home UX state.
+	binDir               string
+	ytdlpInstalling      bool
+	ytdlpInstallStatus   string
+	ytdlpUpdateProgress  string
+	ytdlpUpdateAvailable string
+	ytdlpUpdateStatus    string
 
 	// toasts holds transient notifications (errors, success alerts) dispatched
 	// to the UI context on the next view pass.
 	toasts []toastInfo
+
+	// player view and thumbnails
+	profileGridCols string
+	currentVideoID  int64
+	// player is the in-app system video player for the current video
+	// (nil when the video is not downloaded, missing, or the system has
+	// no media framework); playerVideoID is the video it plays and
+	// playerPath the file the player is open over.
+	player        *ui.VideoPlayer
+	playerVideoID int64
+	playerPath    string
+	// playerSeek is the slider binding for the playhead position, in
+	// seconds (app-owned so dragging persists across view rebuilds).
+	playerSeek float64
+	// playerFullScreen marks fullscreen video mode: the window goes
+	// fullscreen and the player view collapses to just the viewport.
+	playerFullScreen bool
+	randomVideoIDs   []int64
+	thumbsDir        string
+	thumbCache       map[int64]*ui.Bitmap
+	videoDurations   map[int64]string
+
+	// animation state for video progress bars
+	animTargetProgress map[int64]float64
+	animFrame          int
+
+	// animation state for theme transitions
+	themeOld   config.ThemeConfig
+	themeNew   config.ThemeConfig
+	themeAnim  float32 // progress 0..1 across frames
+	themeDirty bool    // set true when theme values change
 }
 
 func defaultConfig() *config.Config {
 	return &config.Config{
 		DefaultDownloadLocation: "./downloads",
-		Workers:                 3,
+		Workers:                 3, // concurrent downloads, max 5
+		ConnectionsPerDownload:  5, // connections per single file
 		Delay:                   time.Second,
 		PerVideoTimeout:         5 * time.Minute,
 		Theme: config.ThemeConfig{
@@ -118,6 +169,8 @@ func defaultConfig() *config.Config {
 			Radius:    12,
 			Spacing:   4,
 		},
+		TikDownloaderAPI:    "https://tikdownloader.io",
+		TikDownloaderFormat: "mp4",
 	}
 }
 
@@ -332,11 +385,35 @@ func (a *app) enterSettings() {
 		a.outDir = a.cfg.DefaultDownloadLocation
 	}
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
-	a.workersF64 = float64(a.cfg.Workers)
+	a.workersF64 = float64(a.cfg.EffectiveConcurrentDownloads())
+	a.connectionsF64 = float64(a.cfg.EffectiveConnectionsPerDownload())
 	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
+
+	// Capture current theme as "old" for transition animation
+	a.themeOld = a.cfg.Theme
+	a.themeNew = a.cfg.Theme
+	a.themeAnim = 0
+	a.themeDirty = true
+
 	a.screen = screenSettings
+}
+
+// persistConfig writes the current settings to config.json (best effort).
+// Used by flows that don't go through the Settings page, e.g. recording the
+// managed yt-dlp path after an auto-install.
+func (a *app) persistConfig() {
+	if a.cfg == nil {
+		return
+	}
+	cfgPath := a.cfgPath
+	if cfgPath == "" {
+		cfgPath = "config.json"
+	}
+	if err := a.cfg.Save(cfgPath); err != nil {
+		a.showToast("Save Error", err.Error(), "error")
+	}
 }
 
 // saveSettings persists the in-memory settings to config.json.
@@ -347,8 +424,19 @@ func (a *app) saveSettings() {
 	if a.outDir != "" {
 		a.cfg.DefaultDownloadLocation = a.outDir
 	}
-	if a.workersF64 >= 1 && a.workersF64 <= 16 {
+	// Concurrent downloads: clamp to 1..5 (default 3), never 16.
+	if a.workersF64 >= 1 {
 		a.cfg.Workers = int(a.workersF64)
+		if a.cfg.Workers > config.MaxWorkers {
+			a.cfg.Workers = config.MaxWorkers
+		}
+	}
+	// Connections per download: separate limit, default 5, max 16.
+	if a.connectionsF64 >= 1 {
+		a.cfg.ConnectionsPerDownload = int(a.connectionsF64)
+		if a.cfg.ConnectionsPerDownload > config.MaxConnectionsPerDownload {
+			a.cfg.ConnectionsPerDownload = config.MaxConnectionsPerDownload
+		}
 	}
 	if d, err := time.ParseDuration(a.delayStr); err == nil && d > 0 {
 		a.cfg.Delay = d
@@ -359,6 +447,9 @@ func (a *app) saveSettings() {
 	if a.radiusF64 >= 0 {
 		a.cfg.Theme.Radius = float32(a.radiusF64)
 	}
+	// Track theme change for animation
+	a.themeNew = a.cfg.Theme
+	a.themeDirty = true
 	cfgPath := a.cfgPath
 	if cfgPath == "" {
 		cfgPath = "config.json"
@@ -375,10 +466,15 @@ func (a *app) resetSettingsToDefault() {
 	a.cfg = config.Default()
 	a.outDir = a.cfg.DefaultDownloadLocation
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
-	a.workersF64 = float64(a.cfg.Workers)
+	a.workersF64 = float64(a.cfg.EffectiveConcurrentDownloads())
+	a.connectionsF64 = float64(a.cfg.EffectiveConnectionsPerDownload())
 	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
+	// Reset theme animation state
+	a.themeNew = a.cfg.Theme
+	a.themeAnim = 0
+	a.themeDirty = true
 	a.showToast("Reset Defaults", "All settings restored to defaults", "info")
 }
 
@@ -413,9 +509,12 @@ func (a *app) initDB() {
 		dir = "."
 	}
 	appDir := filepath.Join(dir, "nameless")
-	os.MkdirAll(appDir, 0755)
+	os.MkdirAll(appDir, 0o755)
 	a.avatarsDir = filepath.Join(appDir, "avatars")
-	os.MkdirAll(a.avatarsDir, 0755)
+	os.MkdirAll(a.avatarsDir, 0o755)
+	a.thumbsDir = filepath.Join(appDir, "thumbs")
+	os.MkdirAll(a.thumbsDir, 0o755)
+	a.binDir = filepath.Join(appDir, "bin")
 	path := filepath.Join(appDir, "data.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -426,16 +525,166 @@ func (a *app) initDB() {
 	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_url TEXT`)
 	db.Exec(`ALTER TABLE profiles ADD COLUMN avatar_path TEXT`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT)`)
+	db.Exec(`ALTER TABLE videos ADD COLUMN position INTEGER`)
 	// Reset interrupted downloads on boot (plan §3, task E8)
 	db.Exec(`UPDATE videos SET status='pending' WHERE status IN ('downloading', 'paused')`)
-	// Probe for yt-dlp binary (plan §4, task E5)
+	// Probe for yt-dlp binary (plan §4, task E5): prefer the app-managed
+	// binary recorded in config.json, then PATH; when neither exists, the
+	// launch prompt offers to download nameless' own copy into its storage.
+	if a.probeYtdlp() {
+		// Refresh an app-managed install opportunistically? The user must
+		// opt in via Settings (no surprise downloads on boot).
+	} else {
+		a.showToast("yt-dlp not found",
+			"Install it system-wide, or let nameless download and manage its own copy — see the banner on Home or Settings → Engine",
+			"error")
+	}
+}
+
+// ytdlpBinDir returns the app-owned storage for the managed yt-dlp binary.
+func (a *app) ytdlpBinDir() string {
+	if a.binDir != "" {
+		return a.binDir
+	}
+	dir, _ := os.UserConfigDir()
+	if dir == "" {
+		dir = "."
+	}
+	return filepath.Join(dir, "nameless", "bin")
+}
+
+// probeYtdlp sets the yt-dlp detection state: an app-managed binary
+// (config "ytdlp_path") is preferred, then PATH. Reports whether yt-dlp
+// is usable. Startup/main thread only.
+func (a *app) probeYtdlp() bool {
+	if a.cfg != nil && a.cfg.YTDLPPath != "" {
+		if bin, err := ytdlp.DetectAt(a.cfg.YTDLPPath); err == nil {
+			a.ytdlpMissing = false
+			a.ytdlpVersion = "yt-dlp " + bin.Version
+			a.ytdlBin = bin
+			return true
+		}
+		// The recorded binary is gone/broken: fall through to PATH and
+		// treat the managed copy as benefiting from a re-download.
+	}
 	if bin, err := ytdlp.Detect(); err == nil {
 		a.ytdlpMissing = false
 		a.ytdlpVersion = "yt-dlp " + bin.Version
-	} else {
-		a.ytdlpMissing = true
-		a.ytdlpVersion = "yt-dlp Missing"
+		a.ytdlBin = bin
+		return true
 	}
+	a.ytdlpMissing = true
+	a.ytdlpVersion = "yt-dlp Missing"
+	a.ytdlBin = ytdlp.Binary{}
+	return false
+}
+
+// onUI runs fn on the UI thread when a window exists; headless runs (tests)
+// execute inline so shared state stays on the caller goroutine.
+func (a *app) onUI(fn func()) {
+	if a.win != nil {
+		a.win.Update(fn)
+		return
+	}
+	fn()
+}
+
+// downloadYtdlp installs (or, when one is already managed, updates /
+// re-downloads) the standalone yt-dlp binary into nameless' own storage,
+// records the path under config "ytdlp_path", and re-probes detection.
+func (a *app) downloadYtdlp() {
+	if a.ytdlpInstalling {
+		return
+	}
+	refresh := a.ytdlBin.Path != ""
+	body := func() {
+		ver, verr := ytdlp.LatestVersion(context.Background())
+		a.onUI(func() {
+			if verr == nil {
+				a.ytdlpUpdateProgress = ""
+				a.ytdlpInstallStatus = fmt.Sprintf("Downloading yt-dlp %s…", ver)
+			} else {
+				a.ytdlpInstallStatus = "Resolving latest yt-dlp release…"
+			}
+		})
+		bin, err := ytdlp.InstallBinary(context.Background(), a.ytdlpBinDir(), func(done, total int64) {
+			a.onUI(func() {
+				if total > 0 {
+					a.ytdlpUpdateProgress = fmt.Sprintf("%d%%", int(100*float64(done)/float64(total)))
+				} else {
+					a.ytdlpUpdateProgress = fmt.Sprintf("%d kB", done/1024)
+				}
+			})
+		})
+		a.onUI(func() {
+			a.ytdlpInstalling = false
+			a.ytdlpUpdateProgress = ""
+			if err != nil {
+				a.ytdlpInstallStatus = ""
+				a.showToast("yt-dlp Download Failed", err.Error(), "error")
+				return
+			}
+			a.ytdlBin = bin
+			a.ytdlpMissing = false
+			a.ytdlpVersion = "yt-dlp " + bin.Version
+			if a.cfg == nil {
+				a.cfg = defaultConfig()
+			}
+			a.cfg.YTDLPPath = bin.Path // config entry for the managed binary
+			a.cfg.InstallYTDLP = true  // managed by nameless, update/redownload in Settings
+			a.persistConfig()
+			if refresh {
+				a.ytdlpInstallStatus = "yt-dlp re-downloaded"
+				a.showToast("yt-dlp Updated", fmt.Sprintf("nameless-managed yt-dlp re-downloaded (%s)", bin.Version), "success")
+			} else {
+				a.ytdlpInstallStatus = "yt-dlp installed by nameless"
+				a.showToast("yt-dlp Installed", fmt.Sprintf("Downloaded yt-dlp %s into nameless storage", bin.Version), "success")
+			}
+			a.ytdlpUpdateAvailable = ""
+		})
+	}
+	if a.win == nil {
+		// Headless (tests): synchronous, race-free.
+		a.ytdlpInstalling = true
+		body()
+		return
+	}
+	a.ytdlpInstalling = true
+	go body()
+}
+
+// checkYtdlpUpdate compares the active yt-dlp against the latest official
+// release and flags the outcome for the Settings UI and toasts.
+func (a *app) checkYtdlpUpdate() {
+	if a.ytdlpInstalling {
+		return
+	}
+	if a.ytdlBin.Path == "" {
+		a.showToast("No yt-dlp yet", "Install/download yt-dlp first, then check for updates", "error")
+		return
+	}
+	cur := a.ytdlBin.Version
+	body := func() {
+		latest, err := ytdlp.LatestVersion(context.Background())
+		a.onUI(func() {
+			switch {
+			case err != nil:
+				a.showToast("Update Check Failed", err.Error(), "error")
+			case cur == "" || ytdlp.IsNewerVersion(cur, latest):
+				a.ytdlpUpdateAvailable = latest
+				a.showToast("Update Available", fmt.Sprintf("yt-dlp %s is available — press Re-download to update", latest), "info")
+			default:
+				a.ytdlpUpdateAvailable = ""
+				a.ytdlpUpdateStatus = "yt-dlp is up to date"
+				a.showToast("Up to Date", fmt.Sprintf("yt-dlp %s is the latest release", cur), "success")
+			}
+		})
+	}
+	if a.win == nil {
+		body()
+		return
+	}
+	go body()
 }
 
 // loadProfiles reads the profile list. UI thread only.
@@ -445,7 +694,7 @@ func (a *app) loadProfiles() {
 	}
 	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_url TEXT")
 	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_path TEXT")
-	rows, err := a.db.Query("SELECT id,url,name,COALESCE(avatar_url, ''),COALESCE(avatar_path, '') FROM profiles")
+	rows, err := a.db.Query("SELECT id,url,COALESCE(name, ''),COALESCE(avatar_url, ''),COALESCE(avatar_path, '') FROM profiles")
 	if err != nil {
 		return
 	}
@@ -462,7 +711,7 @@ func (a *app) loadProfiles() {
 
 // loadVideos queries a profile's videos; safe on any thread (DB only, no app state).
 func (a *app) loadVideos(profileID int64) []video {
-	rows, err := a.db.Query("SELECT id,url,title,status,path FROM videos WHERE profile_id=?", profileID)
+	rows, err := a.db.Query("SELECT id,url,title,status,COALESCE(path, '') FROM videos WHERE profile_id=?", profileID)
 	if err != nil {
 		return nil
 	}
@@ -484,6 +733,148 @@ func (a *app) applyProfile(p profile, vids []video) {
 	a.currentProfile = &pcopy
 	a.screen = screenProfile
 	a.videos = vids
+	for _, v := range vids {
+		if v.path != "" {
+			go a.ensureThumbnail(v.id, v.path)
+		}
+	}
+}
+
+// normalizeProfileURL canonicalizes any accepted profile input to a canonical
+// TikTok profile URL so equivalent variants compare equal:
+//   - "https://www.tiktok.com/@user/extra?x=y" → "https://tiktok.com/@user/extra"
+//   - "tiktok.com/@user" → "https://tiktok.com/@user"
+//   - "@user" and bare "user" → "https://tiktok.com/@user"
+//
+// Handle case is preserved (use profileURLKey for equality checks).
+func normalizeProfileURL(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return ""
+	}
+	u = strings.SplitN(u, "?", 2)[0]
+	u = strings.SplitN(u, "#", 2)[0]
+	u = strings.TrimRight(u, "/")
+	switch {
+	case strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://"):
+		idx := strings.Index(u, "://")
+		rest := u[idx+3:]
+		host, path := rest, ""
+		if p := strings.Index(rest, "/"); p >= 0 {
+			host, path = rest[:p], rest[p:]
+		}
+		return u[:idx] + "://" + strings.TrimPrefix(strings.ToLower(host), "www.") + path
+	case strings.HasPrefix(u, "@"):
+		return "https://tiktok.com/" + u
+	case strings.Contains(u, "/"):
+		// Host/path without a scheme: prefix the canonical scheme.
+		return "https://" + u
+	default:
+		// Bare token: treat it as an @handle ("ne_edless" → @ne_edless).
+		return "https://tiktok.com/@" + u
+	}
+}
+
+// profileURLKey is the comparison key for duplicate detection: the @handle
+// part is case-insensitive on TikTok.
+func profileURLKey(u string) string {
+	return strings.ToLower(normalizeProfileURL(u))
+}
+
+// playlistMeta is the subset of yt-dlp's `--flat-playlist -J` output the
+// fetch flow consumes: channel-level info plus flat video entries.
+type playlistMeta struct {
+	Title      string `json:"title"`
+	Uploader   string `json:"uploader"`
+	Thumbnail  string `json:"thumbnail"`
+	Thumbnails []struct {
+		URL string `json:"url"`
+	} `json:"thumbnails"`
+	Entries []playlistEntry `json:"entries"`
+}
+
+type playlistEntry struct {
+	ID         string `json:"id"`
+	URL        string `json:"url"`
+	Title      string `json:"title"`
+	Thumbnails []struct {
+		URL string `json:"url"`
+	} `json:"thumbnails"`
+}
+
+// validVideoURL reports whether u looks like an actual video link. TikTok
+// video pages end in "/video/<numeric id>", so placeholder replies (e.g.
+// ".../video/sample") and non-video entries are rejected — a bogus or
+// failing yt-dlp response can then never pass as a fetched profile.
+func validVideoURL(u string) bool {
+	u = strings.TrimSpace(u)
+	idx := strings.LastIndex(u, "/video/")
+	if idx < 0 {
+		return false
+	}
+	id := strings.TrimRight(u[idx+len("/video/"):], "/")
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// upsertFetchedVideos reconciles the profile's videos with the fetched
+// playlist: inserts new entries in playlist order and keeps existing rows as
+// they are, so statuses and finished downloads survive a re-fetch.
+// Database only; no app state touched. Returns the number added.
+func (a *app) upsertFetchedVideos(p *profile, meta playlistMeta) int {
+	if a.db == nil {
+		return 0
+	}
+	known := make(map[string]bool)
+	for _, v := range a.loadVideos(p.id) {
+		known[v.url] = true
+	}
+	n := 0
+	for i, e := range meta.Entries {
+		if e.URL == "" || known[e.URL] || !validVideoURL(e.URL) {
+			continue
+		}
+		title := e.Title
+		if title == "" {
+			title = "Video " + e.ID
+		}
+		a.db.Exec("INSERT INTO videos(profile_id, url, title, status, position) VALUES(?, ?, ?, 'pending', ?)", p.id, e.URL, title, i)
+		n++
+	}
+	return n
+}
+
+// existingProfile looks up an already-saved profile by canonical URL. It
+// normalizes both sides so rows saved before normalization (raw pasted
+// strings) still match. Returns (0, "") when the account was never added.
+func (a *app) existingProfile(url string) (int64, string) {
+	if a.db == nil {
+		return 0, ""
+	}
+	key := profileURLKey(url)
+	rows, err := a.db.Query("SELECT id, url, name FROM profiles")
+	if err != nil {
+		return 0, ""
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var u, name string
+		if err := rows.Scan(&id, &u, &name); err != nil {
+			return 0, ""
+		}
+		if profileURLKey(u) == key {
+			return id, name
+		}
+	}
+	return 0, ""
 }
 
 func parseProfileName(u string) string {
@@ -509,71 +900,109 @@ func (a *app) fetchProfile() {
 	if a.fetching {
 		return
 	}
+	url := normalizeProfileURL(a.profileURL)
+	if url == "" {
+		a.fetchErr = "Enter a valid profile URL"
+		a.showToast("Error", "Enter a valid profile URL", "error")
+		return
+	}
+
+	// Same account, one row: if it's already saved, typing it again
+	// *refreshes* the existing profile (name, avatar, video list resolve
+	// here) instead of creating a duplicate row.
+	existingID, _ := a.existingProfile(url)
+
 	a.fetching = true
 	a.fetchErr = ""
-	url := a.profileURL
 
-	go func() {
-		name := parseProfileName(url)
-		p := profile{url: url, name: name}
+	run := func() {
+		// Report a fetch failure; nothing has been persisted yet, so a
+		// failed fetch never leaves a stub profile row in SQLite.
+		fail := func(msg string) {
+			a.onUI(func() {
+				a.fetching = false
+				a.fetchErr = msg
+				a.showToast("Fetch Error", msg, "error")
+			})
+		}
 
+		// 1. Fetch the user's actual data via yt-dlp FIRST (flat playlist
+		// JSON: channel info, avatar and every video entry).
+		var avatarURL string
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", url)
+		out, err := cmd.Output()
+		if err != nil {
+			msg := "yt-dlp failed to fetch profile info: " + err.Error()
+			var ee *exec.Error
+			if errors.As(err, &ee) && errors.Is(ee.Err, exec.ErrNotFound) {
+				msg = "yt-dlp is not installed — install it, press Detect, then retry"
+			} else if ctx.Err() == context.DeadlineExceeded {
+				msg = "Fetching profile info timed out — check the URL and network, then retry"
+			}
+			fail(msg)
+			return
+		}
+		if len(out) == 0 {
+			fail("yt-dlp returned no profile data for this URL — check the URL, then retry")
+			return
+		}
+		var meta playlistMeta
+		if json.Unmarshal(out, &meta) != nil {
+			fail("Could not parse yt-dlp profile data — update yt-dlp, then retry")
+			return
+		}
+		// A reply counts as a real profile only if yt-dlp identified the
+		// account (title/uploader) or it contains at least one genuine
+		// video link. Anything else — empty result, placeholder entries —
+		// is treated as "profile not found" and persists nothing.
+		validVideos := 0
+		for _, e := range meta.Entries {
+			if validVideoURL(e.URL) {
+				validVideos++
+			}
+		}
+		if meta.Title == "" && meta.Uploader == "" && validVideos == 0 {
+			fail("yt-dlp found no profile or videos for this URL — check the handle and retry")
+			return
+		}
+		name := meta.Title
+		if name == "" {
+			name = meta.Uploader
+		}
+		if name == "" {
+			name = parseProfileName(url)
+		}
+		if meta.Thumbnail != "" {
+			avatarURL = meta.Thumbnail
+		} else if len(meta.Thumbnails) > 0 && meta.Thumbnails[0].URL != "" {
+			avatarURL = meta.Thumbnails[0].URL
+		} else if len(meta.Entries) > 0 && len(meta.Entries[0].Thumbnails) > 0 {
+			avatarURL = meta.Entries[0].Thumbnails[0].URL
+		}
+		p := profile{url: url, name: name, avatarURL: avatarURL, id: existingID}
+
+		// 3. Persist: update an existing row in place, insert only when the
+		// account is new — one row per account, ever.
 		a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_url TEXT")
 		a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_path TEXT")
 
-		res, err := a.db.Exec("INSERT INTO profiles(url, name, avatar_url, avatar_path) VALUES(?, ?, '', '')", p.url, p.name)
-		if err != nil {
-			updateFn := func() {
-				a.fetching = false
-				a.fetchErr = "Could not save profile: " + err.Error()
-				a.showToast("Fetch Error", a.fetchErr, "error")
+		if p.id == 0 {
+			res, err := a.db.Exec("INSERT INTO profiles(url, name, avatar_url, avatar_path) VALUES(?, ?, '', '')", p.url, p.name)
+			if err != nil {
+				fail("Could not save profile: " + err.Error())
+				return
 			}
-			if a.win != nil {
-				a.win.Update(updateFn)
-			} else {
-				updateFn()
-			}
-			return
+			p.id, _ = res.LastInsertId()
+		} else {
+			// Refresh: adopt the canonical URL form and the fetched name.
+			a.db.Exec("UPDATE profiles SET url=?, name=? WHERE id=?", p.url, p.name, p.id)
 		}
-		p.id, _ = res.LastInsertId()
 
-		// Metadata & Profile Image Fetch via yt-dlp
-		var avatarURL string
+		// Profile Image download using the id issued above.
 		var avatarPath string
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", "--playlist-items", "1", url)
-		out, err := cmd.Output()
-		if err == nil && len(out) > 0 {
-			var meta struct {
-				Title      string `json:"title"`
-				Uploader   string `json:"uploader"`
-				Thumbnail  string `json:"thumbnail"`
-				Thumbnails []struct {
-					URL string `json:"url"`
-				} `json:"thumbnails"`
-				Entries []struct {
-					Title      string `json:"title"`
-					Thumbnails []struct {
-						URL string `json:"url"`
-					} `json:"thumbnails"`
-				} `json:"entries"`
-			}
-			if json.Unmarshal(out, &meta) == nil {
-				if meta.Title != "" {
-					p.name = meta.Title
-				} else if meta.Uploader != "" {
-					p.name = meta.Uploader
-				}
-				if meta.Thumbnail != "" {
-					avatarURL = meta.Thumbnail
-				} else if len(meta.Thumbnails) > 0 && meta.Thumbnails[0].URL != "" {
-					avatarURL = meta.Thumbnails[0].URL
-				} else if len(meta.Entries) > 0 && len(meta.Entries[0].Thumbnails) > 0 {
-					avatarURL = meta.Entries[0].Thumbnails[0].URL
-				}
-			}
-		}
 
 		if avatarURL != "" {
 			p.avatarURL = avatarURL
@@ -606,7 +1035,13 @@ func (a *app) fetchProfile() {
 
 		a.db.Exec("UPDATE profiles SET name=?, avatar_url=?, avatar_path=? WHERE id=?", p.name, p.avatarURL, p.avatarPath, p.id)
 
+		// 4. Reconcile the video list with the fetched entries: new videos
+		// are inserted pending at their playlist position, existing rows are
+		// kept so finished downloads survive a re-fetch.
+		a.upsertFetchedVideos(&p, meta)
+
 		vids := a.loadVideos(p.id)
+		refreshed := existingID != 0
 		doneFn := func() {
 			a.fetching = false
 			if p.avatarPath != "" {
@@ -619,9 +1054,29 @@ func (a *app) fetchProfile() {
 					}
 				}
 			}
-			a.profiles = append(a.profiles, p)
+			// Replace the in-memory entry on refresh; append only new profiles.
+			replaced := false
+			for i := range a.profiles {
+				if a.profiles[i].id == p.id {
+					a.profiles[i] = p
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				a.profiles = append(a.profiles, p)
+			}
 			a.applyProfile(p, vids)
-			a.showToast("Profile Fetched", fmt.Sprintf("Loaded profile %s", p.name), "success")
+			if refreshed {
+				a.showToast("Profile Updated", fmt.Sprintf("Refreshed %s — %d videos found", p.name, len(vids)), "success")
+			} else {
+				a.showToast("Profile Fetched", fmt.Sprintf("Loaded profile %s", p.name), "success")
+			}
+			// Kick off the batch download of every fetched video right
+			// after landing on the profile screen (real UI sessions only).
+			if a.win != nil && !a.ytdlpMissing {
+				a.startDownload()
+			}
 		}
 
 		if a.win != nil {
@@ -629,7 +1084,16 @@ func (a *app) fetchProfile() {
 		} else {
 			doneFn()
 		}
-	}()
+	}
+
+	if a.win == nil {
+		// Headless (tests): there is no window that drains posts, so run
+		// the whole fetch inline on the caller thread — deterministic and
+		// race-free to observe. The real app always runs it off-thread.
+		run()
+		return
+	}
+	go run()
 }
 
 // openProfile navigates to a profile by value (never a pointer into a slice
@@ -642,39 +1106,111 @@ func (a *app) startDownload() {
 	if a.currentProfile == nil {
 		return
 	}
+	// yt-dlp is still needed for fetching profile metadata (video URLs)
 	if a.ytdlpMissing {
-		a.showToast("yt-dlp Missing", "Install yt-dlp first to start downloads", "error")
+		a.showToast("yt-dlp Missing", "Install yt-dlp first to fetch profiles, then press Detect", "error")
 		return
 	}
+	if a.downloading {
+		return
+	}
+	cfg := a.cfg
+	if cfg == nil {
+		cfg = defaultConfig()
+	}
+	// Use tikdownloader.io for actual video downloading. Connections per
+	// download (default 5) is separate from concurrent downloads below.
+	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, cfg.TikDownloaderFormat, cfg.EffectiveConnectionsPerDownload())
+	outDir := a.effectiveOutputDir()
+	// Snapshot video IDs by URL on the UI thread; workers must not race
+	// with UI mutations of a.videos.
+	vidsSnapshot := make([]video, len(a.videos))
+	copy(vidsSnapshot, a.videos)
 	a.setPaused(false)
 	a.downloading = true
-	// Snapshot: the worker reads only vids and reports through win.Update,
-	// so UI-thread mutations of a.videos can never race with it.
-	vids := make([]video, len(a.videos))
-	copy(vids, a.videos)
 
 	go func() {
-		for i := range vids {
-			a.waitWhilePaused()
-			id := vids[i].id
-			a.win.Update(func() { a.setVideoStatus(id, "downloading") })
-			// simulate yt-dlp download (replaced by internal/queue in M3)
-			p := filepath.Join(a.effectiveOutputDir(), fmt.Sprintf("video_%d.mp4", id))
-			a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", p, id)
-			a.win.Update(func() { a.setVideoDone(id, p) })
-		}
-		a.win.Update(func() {
+		// Fetch profile with yt-dlp to get video URLs and metadata
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", a.currentProfile.url)
+		out, err := cmd.Output()
+		if err != nil {
+			a.showToast("Fetch Error", "yt-dlp failed to fetch profile info", "error")
 			a.downloading = false
-			done, total := 0, len(a.videos)
-			for _, v := range a.videos {
-				if v.status == "done" {
-					done++
+			return
+		}
+
+		// Parse the flat playlist JSON to get video entries
+		var meta struct {
+			Title    string `json:"title"`
+			Uploader string `json:"uploader"`
+			Entries  []struct {
+				ID    string `json:"id"`
+				URL   string `json:"url"`
+				Title string `json:"title"`
+			} `json:"entries"`
+		}
+		if json.Unmarshal(out, &meta) != nil {
+			a.showToast("Parse Error", "Could not parse yt-dlp profile data", "error")
+			a.downloading = false
+			return
+		}
+
+		// Download videos using tikdownloader.io, up to
+		// EffectiveConcurrentDownloads (default 3, max 5) at once.
+		// ConnectionsPerDownload is handled inside tikdownloader per file.
+		type job struct {
+			id       int64
+			videoURL string
+		}
+		jobs := make(chan job)
+		var wg sync.WaitGroup
+		workers := cfg.EffectiveConcurrentDownloads()
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := range jobs {
+					a.waitWhilePaused()
+					id := j.id
+					a.win.Update(func() { a.setVideoStatus(id, "downloading") })
+					result, err := dl.DownloadVideo(context.Background(), j.videoURL, outDir)
+					if err != nil {
+						if a.db != nil {
+							a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)
+						}
+						a.win.Update(func() { a.setVideoStatus(id, "failed") })
+						continue
+					}
+					if a.db != nil {
+						a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", result.Path, id)
+					}
+					a.win.Update(func() { a.setVideoDone(id, result.Path) })
+				}
+			}()
+		}
+		for i := range meta.Entries {
+			entry := meta.Entries[i]
+			if entry.URL == "" {
+				continue
+			}
+			// Map to the on-screen video by URL, falling back to position.
+			id := int64(i + 1)
+			for _, v := range vidsSnapshot {
+				if v.url == entry.URL {
+					id = v.id
+					break
 				}
 			}
-			if done == total && total > 0 {
-				a.showToast("Download Complete", fmt.Sprintf("All %d videos downloaded", total), "success")
-			}
-		})
+			jobs <- job{id: id, videoURL: entry.URL}
+		}
+		close(jobs)
+		wg.Wait()
+
+		a.downloading = false
+		a.showToast("Download Complete", fmt.Sprintf("All videos downloaded via tikdownloader.io (%d entries)", len(meta.Entries)), "success")
 	}()
 }
 
@@ -697,11 +1233,25 @@ func (a *app) setVideoDone(id int64, path string) {
 		if a.videos[i].id == id {
 			a.videos[i].status = "done"
 			a.videos[i].path = path
+			go a.ensureThumbnail(id, path)
 			return
 		}
 	}
 }
 
+// setVideoProgress updates a video's progress percentage and byte counts. UI thread only.
+func (a *app) setVideoProgress(id int64, pct float64, downloaded int64) {
+	for i := range a.videos {
+		if a.videos[i].id == id {
+			a.videos[i].pct = pct
+			a.videos[i].downloaded = downloaded
+			// total is inferred or set separately
+			return
+		}
+	}
+}
+
+// retryFailed sets all failed videos to pending. UI thread only.
 func (a *app) retryFailed() {
 	for i := range a.videos {
 		if a.videos[i].status == "failed" {
@@ -765,4 +1315,166 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// advanceVideoProgress animates one frame of video progress.
+// Should be called at the start of each view loop iteration when a download
+// is in progress. It advances the progress for the given video id by one frame.
+func (a *app) advanceVideoProgress(id int64) {
+	if a.animTargetProgress == nil {
+		return
+	}
+	target, hasTarget := a.animTargetProgress[id]
+	if !hasTarget {
+		return
+	}
+
+	// Simple frame-based animation: advance 1/20 of the way per frame
+	// (assuming ~60fps, this gives ~20 frames = ~333ms, close to AnimationDuration 200ms)
+	const framesForFullAnimation = 20
+	a.animFrame++
+
+	// Calculate progress: from 0 to 1 over framesForFullAnimation frames
+	progress := float64(a.animFrame) / float64(framesForFullAnimation)
+
+	// Clamp to [0, 1]
+	if progress > 1.0 {
+		progress = 1.0
+		a.animFrame = 0              // reset for next animation
+		a.animTargetProgress[id] = 0 // clear target
+	}
+
+	// Compute intermediate percentage
+	pct := progress * target
+	a.win.Update(func() {
+		a.setVideoProgress(id, pct, int64(progress*100)) // approximate total/downloaded
+	})
+}
+
+// animateVideoProgress animates a video's progress percentage from pctFrom to pctTo
+// using MyGo's frame-based animation system. The animation advances each frame
+// via the view loop, aiming to reach pctTo over AnimationDuration (200ms).
+// Call this once per video when starting a download, then the view loop will
+// advance the progress each frame via advanceVideoProgress.
+func (a *app) animateVideoProgress(id int64, pctFrom, pctTo float64) {
+	// Set the target progress for this video
+	if a.animTargetProgress == nil {
+		a.animTargetProgress = make(map[int64]float64)
+	}
+	a.animTargetProgress[id] = pctTo
+
+	// Mark that we start animation from pctFrom
+	// The view loop will compute intermediate values each frame
+	a.animFrame = 0 // reset frame counter
+}
+
+// ensureThumbnail generates a video thumbnail using ffmpeg if not already cached.
+func (a *app) ensureThumbnail(id int64, videoPath string) {
+	if videoPath == "" {
+		return
+	}
+	if a.thumbsDir == "" {
+		dir, _ := os.UserConfigDir()
+		if dir == "" {
+			dir = "."
+		}
+		a.thumbsDir = filepath.Join(dir, "nameless", "thumbs")
+		_ = os.MkdirAll(a.thumbsDir, 0o755)
+	}
+	thumbPath := filepath.Join(a.thumbsDir, fmt.Sprintf("thumb_%d.jpg", id))
+	if _, err := os.Stat(thumbPath); err == nil {
+		a.loadThumbnail(id, thumbPath)
+		a.probeDuration(id, videoPath)
+		return
+	}
+	if _, err := os.Stat(videoPath); err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", "00:00:01", "-i", videoPath, "-frames:v", "1", "-update", "1", thumbPath)
+	if err := cmd.Run(); err == nil {
+		a.loadThumbnail(id, thumbPath)
+	}
+	a.probeDuration(id, videoPath)
+}
+
+// loadThumbnail decodes a thumbnail file into the in-memory cache and triggers a redraw.
+func (a *app) loadThumbnail(id int64, thumbPath string) {
+	data, err := os.ReadFile(thumbPath)
+	if err != nil {
+		return
+	}
+	bmp, err := ui.DecodeBitmap(data)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	if a.thumbCache == nil {
+		a.thumbCache = make(map[int64]*ui.Bitmap)
+	}
+	a.thumbCache[id] = bmp
+	a.mu.Unlock()
+	if a.win != nil {
+		a.win.Update(func() {})
+	}
+}
+
+// probeDuration probes the video duration in seconds via ffprobe and formats as M:SS.
+func (a *app) probeDuration(id int64, videoPath string) {
+	a.mu.Lock()
+	if a.videoDurations != nil {
+		if _, ok := a.videoDurations[id]; ok {
+			a.mu.Unlock()
+			return
+		}
+	}
+	a.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	secStr := strings.TrimSpace(string(out))
+	var sec float64
+	if _, err := fmt.Sscanf(secStr, "%f", &sec); err == nil && sec > 0 {
+		m := int(sec) / 60
+		s := int(sec) % 60
+		durStr := fmt.Sprintf("%d:%02d", m, s)
+		a.mu.Lock()
+		if a.videoDurations == nil {
+			a.videoDurations = make(map[int64]string)
+		}
+		a.videoDurations[id] = durStr
+		a.mu.Unlock()
+		if a.win != nil {
+			a.win.Update(func() {})
+		}
+	}
+}
+
+// playExternal launches the video in mpv (preferred) or xdg-open.
+func (a *app) playExternal(videoPath string) {
+	if videoPath == "" {
+		a.showToast("Cannot play", "Video has not been downloaded yet", "error")
+		return
+	}
+	if _, err := os.Stat(videoPath); err != nil {
+		a.showToast("File missing", "Video file not found at "+videoPath, "error")
+		return
+	}
+	go func() {
+		if mpvPath, err := exec.LookPath("mpv"); err == nil {
+			_ = exec.Command(mpvPath, videoPath).Run()
+			return
+		}
+		if xdgPath, err := exec.LookPath("xdg-open"); err == nil {
+			_ = exec.Command(xdgPath, videoPath).Run()
+			return
+		}
+	}()
+	a.showToast("Playing video", "Opened in system player", "info")
 }
