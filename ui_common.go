@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"nameless/internal/theme"
 	appui "nameless/ui"
 
 	"github.com/egoist/mygo/ui"
@@ -13,8 +14,24 @@ func shadcnTheme() ui.Theme {
 	return appui.ShadcnTheme()
 }
 
+// effectiveTheme builds the frame theme from config: light or dark
+// shadcn base, with accent/radius/spacing overlaid from Settings.
+func (a *app) effectiveTheme() ui.Theme {
+	if a.cfg == nil {
+		return shadcnTheme()
+	}
+	var t ui.Theme
+	if a.cfg.Theme.Dark {
+		t = appui.ShadcnTheme()
+	} else {
+		t = appui.LightShadcnTheme()
+	}
+	theme.Apply(&t, a.cfg.Theme)
+	return t
+}
+
 func (a *app) view(c *ui.Context) {
-	theme := shadcnTheme()
+	theme := a.effectiveTheme()
 	c.SetTheme(&theme)
 	a.drainToasts(c)
 	t := c.Theme()

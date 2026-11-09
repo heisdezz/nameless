@@ -31,3 +31,26 @@ func ShadcnTheme() mygoui.Theme {
 
 // ErrColor returns the standard danger color for errors.
 func ErrColor() mygoui.Color { return mygoui.Color{R: 239, G: 68, B: 68, A: 255} }
+
+// LightShadcnTheme returns the light shadcn zinc theme tokens, mirroring
+// ShadcnTheme for the non-dark appearance.
+func LightShadcnTheme() mygoui.Theme {
+	t := *mygoui.LightTheme()
+	t.Dark = false
+	t.Background = mygoui.Color{R: 255, G: 255, B: 255, A: 255}   // #ffffff
+	t.Surface = mygoui.Color{R: 244, G: 244, B: 245, A: 255}      // #f4f4f5 (zinc-100)
+	t.SurfaceHover = mygoui.Color{R: 233, G: 233, B: 236, A: 255} // #e9e9ec
+	t.SurfacePressed = mygoui.Color{R: 221, G: 221, B: 225, A: 255}
+	t.Border = mygoui.Color{R: 228, G: 228, B: 231, A: 255}    // #e4e4e7 (zinc-200)
+	t.Text = mygoui.Color{R: 9, G: 9, B: 11, A: 255}           // #09090b (zinc-950)
+	t.TextMuted = mygoui.Color{R: 113, G: 113, B: 122, A: 255} // #71717a (zinc-500)
+	t.Accent = mygoui.Color{R: 9, G: 9, B: 11, A: 255}
+	t.AccentHover = mygoui.Color{R: 39, G: 39, B: 42, A: 255}
+	t.AccentPressed = mygoui.Color{R: 63, G: 63, B: 70, A: 255}
+	t.AccentText = mygoui.Color{R: 250, G: 250, B: 250, A: 255}
+	t.Danger = mygoui.Color{R: 220, G: 38, B: 38, A: 255}
+	t.Success = mygoui.Color{R: 22, G: 163, B: 74, A: 255}
+	t.Radius = 6
+	t.Spacing = 4
+	return t
+}

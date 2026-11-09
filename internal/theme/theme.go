@@ -30,55 +30,84 @@ var AnimationEaseOut = ui.EaseOut
 // and the Dark base choice. The caller applies the result via SetTheme.
 // Now supports animated transitions via AnimateTo on the theme tokens.
 func Apply(base *ui.Theme, cfg config.ThemeConfig) {
+	if base == nil {
+		return
+	}
 	// Set base theme tokens from config
-	base.Accent = hexToColor(cfg.AccentHex)
+	accent, err := ParseHex(cfg.AccentHex)
+	if err != nil {
+		// Keep the base accent on invalid hex instead of blanking it.
+		accent = base.Accent
+	}
+	base.Accent = accent
+	base.AccentHover = mixColor(accent, ui.Color{R: 255, G: 255, B: 255, A: 255}, 0.15)
+	base.AccentPressed = mixColor(accent, ui.Color{A: 255}, 0.15)
 	base.Dark = cfg.Dark
 	base.Radius = cfg.Radius
 	base.Spacing = cfg.Spacing
-
-	// Apply preset color mixes if needed
-	// Accent hover/pressed can be animated via AnimateTo in the view layer
 }
 
-// ParseHex accepts #rgb and #rrggbb; on error the caller keeps the previous value.
+// mixColor blends c toward target by t (0..1).
+func mixColor(c, target ui.Color, t float32) ui.Color {
+	lerp := func(x, y uint8) uint8 { return uint8(float32(x) + (float32(y)-float32(x))*t) }
+	return ui.Color{R: lerp(c.R, target.R), G: lerp(c.G, target.G), B: lerp(c.B, target.B), A: 255}
+}
+
+// ParseHex accepts #rgb, #rgba, #rrggbb and #rrggbbaa; on error the caller
+// keeps the previous value.
 func ParseHex(hex string) (ui.Color, error) {
-	return hexToColor(hex), nil
+	switch len(hex) {
+	case 4, 5, 7, 9:
+		for _, r := range hex[1:] {
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+				return ui.Color{}, fmt.Errorf("theme: invalid hex color %q", hex)
+			}
+		}
+		if hex[0] != '#' {
+			return ui.Color{}, fmt.Errorf("theme: invalid hex color %q", hex)
+		}
+		return hexToColor(hex), nil
+	default:
+		return ui.Color{}, fmt.Errorf("theme: invalid hex color %q", hex)
+	}
 }
 
 // Presets returns the named theme presets ("Indigo", "Forest", "Sunset", "Mono").
 func Presets() map[string]config.ThemeConfig {
 	return map[string]config.ThemeConfig{
-		"Indigo": {AccentHex: "#6366f1", Dark: true, Radius: 12, Spacing: 4},
-		"Forest": {AccentHex: "#10b981", Dark: true, Radius: 12, Spacing: 4},
-		"Sunset": {AccentHex: "#f43f5e", Dark: true, Radius: 12, Spacing: 4},
-		"Mono":   {AccentHex: "#fafafa", Dark: true, Radius: 12, Spacing: 4},
-		"Zinc":   {AccentHex: "#fafafa", Dark: true, Radius: 12, Spacing: 4},
+		"Zinc":    {AccentHex: "#fafafa", Dark: true, Radius: 8, Spacing: 4},
+		"Emerald": {AccentHex: "#10b981", Dark: true, Radius: 8, Spacing: 4},
+		"Violet":  {AccentHex: "#8b5cf6", Dark: true, Radius: 8, Spacing: 4},
+		"Indigo":  {AccentHex: "#6366f1", Dark: true, Radius: 8, Spacing: 4},
+		"Rose":    {AccentHex: "#f43f5e", Dark: true, Radius: 8, Spacing: 4},
 	}
 }
 
 // hexToColor converts a hex string to ui.Color.
-// Accepts #rgb and #rrggbb formats.
+// Accepts #rgb, #rgba, #rrggbb and #rrggbbaa; invalid input yields
+// a transparent color (ParseHex reports the error separately).
 func hexToColor(hex string) ui.Color {
 	var r, g, b, a uint32
 	switch len(hex) {
 	case 7: // #rrggbb
 		fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
 		a = 255
-	case 4: // #rgba
-		fmt.Sscanf(hex, "#%1x%1x%1x%1x", &r, &g, &b, &a)
-		// normalize to 0-255
-		r *= 17
-		g *= 17
-		b *= 17
-	case 3: // #rgb
+	case 9: // #rrggbbaa
+		fmt.Sscanf(hex, "#%02x%02x%02x%02x", &r, &g, &b, &a)
+	case 4: // #rgb
 		fmt.Sscanf(hex, "#%1x%1x%1x", &r, &g, &b)
 		a = 255
 		r *= 17
 		g *= 17
 		b *= 17
+	case 5: // #rgba
+		fmt.Sscanf(hex, "#%1x%1x%1x%1x", &r, &g, &b, &a)
+		r *= 17
+		g *= 17
+		b *= 17
+		a *= 17
 	default:
-		// fallback to transparent
-		return ui.Color{R: 0, G: 0, B: 0, A: 0}
+		return ui.Color{}
 	}
 	return ui.Color{R: uint8(r), G: uint8(g), B: uint8(b), A: uint8(a)}
 }

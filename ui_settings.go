@@ -48,10 +48,15 @@ func (a *app) viewSettings(c *ui.Context) {
 		},
 		OnSelectAccentPreset: func(hex string) {
 			a.cfg.Theme.AccentHex = hex
+			// Live-preview the transition before Save.
+			a.themeNew = a.cfg.Theme
+			a.themeDirty = true
 		},
 		OnSelectSpacing: func(s string) {
 			a.spacingSel = s
 			a.cfg.Theme.Spacing = spacingUnit(s)
+			a.themeNew = a.cfg.Theme
+			a.themeDirty = true
 		},
 	})
 }
