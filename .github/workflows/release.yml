@@ -1,0 +1,119 @@
+name: Release
+
+# Build binaries for Windows, macOS and Linux on every update to main,
+# and publish them as a GitHub Release (tag v<run_number>).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create releases
+
+# Never cancel a release build halfway through.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run tests
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./...
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            asset: nameless-windows-amd64.exe
+            bin: nameless-windows-amd64.exe
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: nameless-linux-amd64
+            bin: nameless-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            asset: nameless-linux-arm64
+            bin: nameless-linux-arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            asset: nameless-macos-amd64
+            bin: nameless-macos-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            asset: nameless-macos-arm64
+            bin: nameless-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build binary
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/${{ matrix.bin }}" .
+          ls -lh "dist/${{ matrix.bin }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.bin }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: nameless v${{ github.run_number }}
+          body: |
+            Automated build from `main` at ${{ github.sha }}.
+
+            | Asset | Platform |
+            |---|---|
+            | `nameless-windows-amd64.exe` | Windows (x86_64) |
+            | `nameless-linux-amd64` | Linux (x86_64) |
+            | `nameless-linux-arm64` | Linux (ARM64) |
+            | `nameless-macos-amd64` | macOS (Intel) |
+            | `nameless-macos-arm64` | macOS (Apple Silicon) |
+
+            > Note: macOS may block the unsigned binary on first launch
+            > (right-click → Open, or `xattr -d com.apple.quarantine <file>`).
+          files: artifacts/*
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
