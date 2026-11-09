@@ -457,10 +457,21 @@ JSON
 func TestKeyboardOperability(t *testing.T) {
 	// Offline yt-dlp stub: "--version" works (Detect passes), everything
 	// else fails — profile data fetch errors out, downloads fail fast.
+	// Exception: the SECOND --flat-playlist call (step 4's startDownload)
+	// blocks, so the download goroutine stays in-flight while we assert
+	// a.downloading. Without this the goroutine can fail fast and clear
+	// a.downloading before the assertion runs — a scheduler-dependent
+	// flake (observed on CI and under GOMAXPROCS=1).
 	stubDir := t.TempDir()
 	script := `#!/bin/sh
 case "$1" in
   --version) echo "2026.01.02";;
+  --flat-playlist)
+    dir=$(dirname "$0")
+    n=0; [ -f "$dir/count" ] && n=$(cat "$dir/count")
+    n=$((n+1)); echo "$n" > "$dir/count"
+    if [ "$n" -gt 1 ]; then sleep 5; fi
+    exit 1;;
   *) exit 1;;
 esac
 `
@@ -523,6 +534,11 @@ esac
 	a.applyProfile(profile{id: 1, name: "p1"}, []video{{id: 1, title: "v1", status: "pending"}})
 	ttProfile = ui.NewTester(a.view, 640, 480)
 	ttProfile.Key(ui.Ctrl, ui.KeyD)
+	// Poll briefly: Key dispatch / goroutine scheduling must not matter.
+	// The stub blocks the download, so once set it stays true.
+	for i := 0; i < 200 && !a.downloading; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if !a.downloading {
 		t.Fatalf("expected a.downloading to be true after Ctrl+D")
 	}

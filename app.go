@@ -1175,19 +1175,19 @@ func (a *app) startDownload() {
 				for j := range jobs {
 					a.waitWhilePaused()
 					id := j.id
-					a.win.Update(func() { a.setVideoStatus(id, "downloading") })
+					a.onUI(func() { a.setVideoStatus(id, "downloading") })
 					result, err := dl.DownloadVideo(context.Background(), j.videoURL, outDir)
 					if err != nil {
 						if a.db != nil {
 							a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)
 						}
-						a.win.Update(func() { a.setVideoStatus(id, "failed") })
+						a.onUI(func() { a.setVideoStatus(id, "failed") })
 						continue
 					}
 					if a.db != nil {
 						a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", result.Path, id)
 					}
-					a.win.Update(func() { a.setVideoDone(id, result.Path) })
+					a.onUI(func() { a.setVideoDone(id, result.Path) })
 				}
 			}()
 		}
