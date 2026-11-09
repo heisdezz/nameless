@@ -1,0 +1,24 @@
+{
+  "cookie": "",
+  "env_file": ".env",
+  "default_download_location": "./downloads",
+  "naming_template": "%(upload_date)s_%(id)s_%(title)s.%(ext)s",
+  "video_quality": "best",
+  "write_thumbnail": true,
+  "workers": 3,
+  "concurrent_downloads": 3,
+  "connections_per_download": 5,
+  "delay": "1s",
+  "per_video_timeout": "5m0s",
+  "theme": {
+    "accent": "#fafafa",
+    "dark": true,
+    "radius": 14,
+    "spacing": 5
+  },
+  "tikdownloader": {
+    "api_endpoint": "https://tikdownloader.io",
+    "format": "mp4"
+  },
+  "save_by_username": false
+}
