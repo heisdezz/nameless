@@ -58,7 +58,7 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 					mygoui.Text(c, fmt.Sprintf("%d creator profiles saved", len(props.Profiles))).TextColor(t.TextMuted).FontSize(13)
 				})
 
-				mygoui.Row(c).AlignItems(mygoui.Center).Gap(10).Children(func() {
+				mygoui.Row(c).AlignItems(mygoui.Center).Wrap().Gap(10).Children(func() {
 					if props.GridCols != nil {
 						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
 							mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)

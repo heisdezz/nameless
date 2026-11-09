@@ -296,10 +296,12 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 			// Filter & Sort bar: search + sort + layout controls grouped
 			// in one card instead of scattered across header/sections.
 			mygoui.Column(c).FillWidth().Padding(14).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-				mygoui.Row(c).FillWidth().Gap(14).AlignItems(mygoui.Center).Children(func() {
+				// Wrap: on narrow windows the selects flow to a second
+				// line instead of overflowing off the right edge.
+				mygoui.Row(c).FillWidth().Wrap().Gap(10).AlignItems(mygoui.Center).Children(func() {
 					mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
 					if props.SearchQuery != nil {
-						mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Width(300)
+						mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Grow(1).MinWidth(180)
 					}
 					// Sort
 					if props.SortBy != nil {
