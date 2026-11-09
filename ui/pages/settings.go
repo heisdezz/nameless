@@ -10,9 +10,13 @@ import (
 
 // SettingsProps defines inputs and bindings for the Settings page.
 type SettingsProps struct {
-	OutDir               *string
-	NamingTemplate       *string
+	OutDir         *string
+	NamingTemplate *string
+	// WorkersF64 binds concurrent downloads (videos in flight at once,
+	// default 3, max 5). ConnectionsF64 binds connections per single
+	// download (default 5) — a different limit, not to be confused.
 	WorkersF64           *float64
+	ConnectionsF64       *float64
 	DelayStr             *string
 	TimeoutStr           *string
 	VideoQuality         *string
@@ -77,8 +81,12 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 			// 1. Download & Storage Settings Card
 			mygoui.Column(c).FillWidth().Padding(18).Gap(14).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-				mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
-					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+				// Section header with accent bar
+				mygoui.Row(c).Gap(8).Children(func() {
+					mygoui.Box(c).Height(2).Background(t.Accent).FillWidth()
+				})
+				mygoui.Column(c).Gap(2).Children(func() {
+					mygoui.Row(c).Gap(4).AlignItems(mygoui.Start).Children(func() {
 						mygoui.Icon(c, ui.IconFolder).Size(16, 16).TextColor(t.Text)
 						mygoui.Text(c, "Download & Engine Settings").Bold().FontSize(15)
 					})
@@ -88,7 +96,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				// Default Download Location
 				if props.OutDir != nil {
-					mygoui.Column(c).Gap(4).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 						mygoui.Text(c, "Default Download Location").FontSize(12).Bold()
 						mygoui.TextInput(c, props.OutDir).Placeholder("./downloads").FillWidth()
 						mygoui.Text(c, "Folder where profiles and videos will be saved on your local machine.").TextColor(t.TextMuted).FontSize(11)
@@ -97,7 +105,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				// Naming Template
 				if props.NamingTemplate != nil {
-					mygoui.Column(c).Gap(4).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 						mygoui.Text(c, "Video Filename Template").FontSize(12).Bold()
 						mygoui.TextInput(c, props.NamingTemplate).Placeholder("%(upload_date)s_%(id)s_%(title)s.%(ext)s").FillWidth()
 						mygoui.Text(c, "Pattern for output filenames. Tags: %(id)s, %(title)s, %(upload_date)s, %(uploader)s, %(ext)s").TextColor(t.TextMuted).FontSize(11)
@@ -106,7 +114,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				// Video Quality
 				if props.VideoQuality != nil {
-					mygoui.Column(c).Gap(4).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 						mygoui.Text(c, "Video Quality Preference").FontSize(12).Bold()
 						mygoui.TextInput(c, props.VideoQuality).Placeholder("best").FillWidth()
 						mygoui.Text(c, "Quality format selector (e.g. 'best', '1080p', '720p', or 'audio_only').").TextColor(t.TextMuted).FontSize(11)
@@ -116,7 +124,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 				mygoui.Box(c).Height(1).FillWidth().Background(t.Border)
 
 				// Media Asset Toggles (Switches)
-				mygoui.Column(c).Gap(10).FillWidth().Children(func() {
+				mygoui.Column(c).Gap(12).FillWidth().Children(func() {
 					mygoui.Text(c, "Additional Assets").FontSize(12).Bold()
 
 					// Thumbnail Switch
@@ -156,49 +164,68 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 			// 2. Concurrency & Performance Settings Card
 			mygoui.Column(c).FillWidth().Padding(18).Gap(14).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-				mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
-					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+				// Section header with accent bar
+				mygoui.Row(c).Gap(8).Children(func() {
+					mygoui.Box(c).Height(2).Background(t.Accent).FillWidth()
+				})
+				mygoui.Column(c).Gap(2).Children(func() {
+					mygoui.Row(c).Gap(4).AlignItems(mygoui.Start).Children(func() {
 						mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Text)
 						mygoui.Text(c, "Engine & Concurrency").Bold().FontSize(15)
 					})
-					statusText := props.EngineStatus
-					if statusText == "" {
-						statusText = "yt-dlp Ready"
-					}
-					mygoui.Row(c).Gap(4).AlignItems(mygoui.Center).Children(func() {
-						mygoui.Text(c, "●").FontSize(9).TextColor(mygoui.Color{R: 34, G: 197, B: 94, A: 255})
-						mygoui.Text(c, statusText).FontSize(11).TextColor(t.TextMuted)
-					})
+					mygoui.Text(c, "Engine & Concurrency").FontSize(11).TextColor(t.TextMuted)
 				})
 				mygoui.Text(c, "Tune worker parallelism and delay throttling to maximize throughput while avoiding rate limits.").TextColor(t.TextMuted).FontSize(12)
 
-				// Workers Slider
+				// Concurrent Downloads Slider (videos in flight at once)
 				if props.WorkersF64 != nil {
 					wVal := int(*props.WorkersF64)
 					if wVal < 1 {
 						wVal = 1
 					}
-					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+					if wVal > 5 {
+						wVal = 5
+					}
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 						mygoui.Row(c).FillWidth().Justify(mygoui.SpaceBetween).Children(func() {
-							mygoui.Text(c, "Parallel Workers").FontSize(12).Bold()
+							mygoui.Text(c, "Concurrent Downloads (Parallel Workers)").FontSize(12).Bold()
 							mygoui.Text(c, fmt.Sprintf("%d simultaneous downloads", wVal)).FontSize(12).TextColor(t.Text)
 						})
-						mygoui.StepSlider(c, props.WorkersF64, 1, 16, 1).FillWidth()
-						mygoui.Text(c, "Higher concurrency increases bandwidth usage; 3–5 is recommended for TikTok.").TextColor(t.TextMuted).FontSize(11)
+						mygoui.StepSlider(c, props.WorkersF64, 1, 5, 1).FillWidth()
+						mygoui.Text(c, "How many videos download at once. Default 3, max 5. This is not connections per download.").TextColor(t.TextMuted).FontSize(11)
+					})
+				}
+
+				// Connections Per Download Slider (per single file)
+				if props.ConnectionsF64 != nil {
+					cVal := int(*props.ConnectionsF64)
+					if cVal < 1 {
+						cVal = 1
+					}
+					if cVal > 16 {
+						cVal = 16
+					}
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
+						mygoui.Row(c).FillWidth().Justify(mygoui.SpaceBetween).Children(func() {
+							mygoui.Text(c, "Connections Per Download").FontSize(12).Bold()
+							mygoui.Text(c, fmt.Sprintf("%d connections", cVal)).FontSize(12).TextColor(t.Text)
+						})
+						mygoui.StepSlider(c, props.ConnectionsF64, 1, 16, 1).FillWidth()
+						mygoui.Text(c, "Parallel connections for one video file. Default 5. Separate from concurrent downloads above.").TextColor(t.TextMuted).FontSize(11)
 					})
 				}
 
 				// Delay and Timeout Rows
 				mygoui.Row(c).FillWidth().Gap(14).Children(func() {
 					if props.DelayStr != nil {
-						mygoui.Column(c).Fill().Gap(4).Children(func() {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 							mygoui.Text(c, "Delay Between Downloads").FontSize(12).Bold()
 							mygoui.TextInput(c, props.DelayStr).Placeholder("1s").FillWidth()
 							mygoui.Text(c, "Cooldown between requests (e.g. '1s', '500ms').").TextColor(t.TextMuted).FontSize(11)
 						})
 					}
 					if props.TimeoutStr != nil {
-						mygoui.Column(c).Fill().Gap(4).Children(func() {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 							mygoui.Text(c, "Per-Video Timeout").FontSize(12).Bold()
 							mygoui.TextInput(c, props.TimeoutStr).Placeholder("5m").FillWidth()
 							mygoui.Text(c, "Kill individual worker after timeout (e.g. '5m').").TextColor(t.TextMuted).FontSize(11)
@@ -208,7 +235,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				// Custom yt-dlp binary path
 				if props.YTDLPPath != nil {
-					mygoui.Column(c).Gap(4).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 						mygoui.Text(c, "Custom yt-dlp Executable Path").FontSize(12).Bold()
 						mygoui.TextInput(c, props.YTDLPPath).Placeholder("/usr/bin/yt-dlp").FillWidth()
 						mygoui.Text(c, "Leave blank to auto-detect yt-dlp from system PATH.").TextColor(t.TextMuted).FontSize(11)
@@ -218,15 +245,22 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 			// 3. Authentication & Cookies Card
 			mygoui.Column(c).FillWidth().Padding(18).Gap(14).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
-					mygoui.Icon(c, ui.IconSettings).Size(16, 16).TextColor(t.Text)
-					mygoui.Text(c, "TikTok Authentication & Cookies").Bold().FontSize(15)
+				// Section header with accent bar
+				mygoui.Row(c).Gap(8).Children(func() {
+					mygoui.Box(c).Height(2).Background(t.Accent).FillWidth()
+				})
+				mygoui.Column(c).Gap(2).Children(func() {
+					mygoui.Row(c).Gap(4).AlignItems(mygoui.Start).Children(func() {
+						mygoui.Icon(c, ui.IconSettings).Size(16, 16).TextColor(t.Text)
+						mygoui.Text(c, "TikTok Authentication & Cookies").Bold().FontSize(15)
+					})
+					mygoui.Text(c, "TikTok Authentication & Cookies").FontSize(11).TextColor(t.TextMuted)
 				})
 				mygoui.Text(c, "Authenticate requests to download private profiles, age-restricted videos, or solve CAPTCHA limits.").TextColor(t.TextMuted).FontSize(12)
 
 				// Browser Cookie Source
 				if props.CookiesFromBrowser != nil {
-					mygoui.Column(c).Gap(4).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 						mygoui.Text(c, "Extract Cookies from Browser").FontSize(12).Bold()
 						mygoui.TextInput(c, props.CookiesFromBrowser).Placeholder("chrome, firefox, brave, edge").FillWidth()
 						mygoui.Text(c, "Automatically read cookies from your web browser (e.g. 'chrome', 'firefox', 'brave', 'edge').").TextColor(t.TextMuted).FontSize(11)
@@ -234,16 +268,16 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 				}
 
 				// Cookie File and Session ID
-				mygoui.Row(c).FillWidth().Gap(14).Children(func() {
+				mygoui.Row(c).Gap(14).Children(func() {
 					if props.Cookie != nil {
-						mygoui.Column(c).Fill().Gap(4).Children(func() {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 							mygoui.Text(c, "Netscape Cookies File").FontSize(12).Bold()
 							mygoui.TextInput(c, props.Cookie).Placeholder("path/to/cookies.txt").FillWidth()
 							mygoui.Text(c, "Path to exported cookies.txt file.").TextColor(t.TextMuted).FontSize(11)
 						})
 					}
 					if props.SessionID != nil {
-						mygoui.Column(c).Fill().Gap(4).Children(func() {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 							mygoui.Text(c, "Session ID Cookie").FontSize(12).Bold()
 							mygoui.TextInput(c, props.SessionID).Placeholder("sessionid value...").FillWidth()
 							mygoui.Text(c, "Direct value of the sessionid cookie.").TextColor(t.TextMuted).FontSize(11)
@@ -254,17 +288,24 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 			// 4. Appearance & Theme Card
 			mygoui.Column(c).FillWidth().Padding(18).Gap(14).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-				mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
-					mygoui.Icon(c, ui.IconSidebar).Size(16, 16).TextColor(t.Text)
-					mygoui.Text(c, "Theme & Appearance").Bold().FontSize(15)
+				// Section header with accent bar
+				mygoui.Row(c).Gap(8).Children(func() {
+					mygoui.Box(c).Height(2).Background(t.Accent).FillWidth()
+				})
+				mygoui.Column(c).Gap(2).Children(func() {
+					mygoui.Row(c).Gap(4).AlignItems(mygoui.Start).Children(func() {
+						mygoui.Icon(c, ui.IconSidebar).Size(16, 16).TextColor(t.Text)
+						mygoui.Text(c, "Theme & Appearance").Bold().FontSize(15)
+					})
+					mygoui.Text(c, "Theme & Appearance").FontSize(11).TextColor(t.TextMuted)
 				})
 				mygoui.Text(c, "Customize application color accents, spacing density, and rounded corners.").TextColor(t.TextMuted).FontSize(12)
 
 				// Accent Color & Presets
 				if props.AccentHex != nil {
-					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 						mygoui.Text(c, "Accent Color").FontSize(12).Bold()
-						mygoui.Row(c).Gap(10).AlignItems(mygoui.Center).Children(func() {
+						mygoui.Row(c).Gap(12).AlignItems(mygoui.Center).Children(func() {
 							mygoui.TextInput(c, props.AccentHex).Placeholder("#fafafa").Width(140)
 
 							// Color Preset Pills
@@ -300,7 +341,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 				// Corner Radius Slider
 				if props.RadiusF64 != nil {
 					rVal := int(*props.RadiusF64)
-					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 						mygoui.Row(c).FillWidth().Justify(mygoui.SpaceBetween).Children(func() {
 							mygoui.Text(c, "Corner Radius").FontSize(12).Bold()
 							mygoui.Text(c, fmt.Sprintf("%d px", rVal)).FontSize(12).TextColor(t.Text)
@@ -310,9 +351,9 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 				}
 
 				// Spacing Density Pills
-				mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+				mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 					mygoui.Text(c, "Interface Spacing Density").FontSize(12).Bold()
-					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+					mygoui.Row(c).Gap(10).AlignItems(mygoui.Center).Children(func() {
 						for _, s := range []string{"Compact", "Default", "Roomy"} {
 							spacingVal := s
 							btn := mygoui.Button(c.Key("spacing-"+s), s).Radius(6)
@@ -330,7 +371,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				// Dark Mode Toggle
 				if props.Dark != nil {
-					mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
+					mygoui.Row(c).Gap(12).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
 						mygoui.Column(c).Gap(2).Children(func() {
 							mygoui.Text(c, "Dark Mode").FontSize(13)
 							mygoui.Text(c, "Enabled by default with authentic shadcn dark zinc palette.").TextColor(t.TextMuted).FontSize(11)

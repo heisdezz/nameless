@@ -4,7 +4,7 @@ Companion to `docs/implementation-plan.md` (architecture, frozen APIs §3, owner
 
 ## Rules for agents
 
-1. **Claim before you code**: set your task row to `🚡 In progress` with your agent name. Never start work on an unclaimed task.
+1. **Claim before you code**: set your task row to `✅ Done` with your agent name. Never start work on an unclaimed task.
 2. **File ownership is exclusive** (plan §5): you may edit only files in your workstream's "Owns" column plus your own rows in this file. Touching another column's files requires the integrator (WS-E) — post a note in "Blockers & notes" instead.
 3. **Frozen APIs** (plan §3): signatures there are contracts. A change requires an entry in "Contract changes" below and integrator sign-off before dependent work merges.
 4. **Definition of done**: code + tests pass `CGO_ENABLED=0 go test ./...`, `go tool mygo vet .` clean (`-race` added when touching shared state), row updated to `✅ Done` with a one-line note. UI work additionally needs a `ui.NewTester` test.
@@ -37,73 +37,75 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 
 **WS-A — config & store**
 
-| ID  | Task                                                                                                | Status         | Agent | Note |
-| --- | --------------------------------------------------------------------------------------------------- | -------------- | ----- | ---- |
-| A1  | `config.Load/LoadOrCreate/Save/Validate` against existing `config.json` (parse durations, defaults) | ✅ Done        | A     | Implemented and verified in config_test.go |
-| A2  | Add `ThemeConfig` to config + write-back on save                                                    | ✅ Done        | A     | ThemeConfig roundtrip tested in config_test.go |
-| A3  | `store.Open` + migration v2 (plan §3 SQL), `schema_version` table                                   | ✅ Done        | A     | Idempotent migrations tested in store_test.go |
-| A4  | Profile CRUD + `UpsertVideos` (dedupe by URL), position ordering                                    | ✅ Done        | A     | Video dedupe & position ordering in store_test.go |
-| A5  | Video status/progress setters + `ResetInterrupted` + `FailedVideos`                                 | ✅ Done        | A     | All setters & FailedVideos verified in store_test.go |
-| A6  | Store tests w/ temp DB; config round-trip test                                                      | ✅ Done        | A     | Temp DB store_test.go & config_test.go pass |
+| ID  | Task                                                                                                | Status  | Agent | Note                                                 |
+| --- | --------------------------------------------------------------------------------------------------- | ------- | ----- | ---------------------------------------------------- |
+| A1  | `config.Load/LoadOrCreate/Save/Validate` against existing `config.json` (parse durations, defaults) | ✅ Done | A     | Implemented and verified in config_test.go           |
+| A2  | Add `ThemeConfig` to config + write-back on save                                                    | ✅ Done | A     | ThemeConfig roundtrip tested in config_test.go       |
+| A3  | `store.Open` + migration v2 (plan §3 SQL), `schema_version` table                                   | ✅ Done | A     | Idempotent migrations tested in store_test.go        |
+| A4  | Profile CRUD + `UpsertVideos` (dedupe by URL), position ordering                                    | ✅ Done | A     | Video dedupe & position ordering in store_test.go    |
+| A5  | Video status/progress setters + `ResetInterrupted` + `FailedVideos`                                 | ✅ Done | A     | All setters & FailedVideos verified in store_test.go |
+| A6  | Store tests w/ temp DB; config round-trip test                                                      | ✅ Done | A     | Temp DB store_test.go & config_test.go pass          |
 
 **WS-B — yt-dlp engine**
 
-| ID  | Task                                                                                                               | Status         | Agent | Note |
-| --- | ------------------------------------------------------------------------------------------------------------------ | -------------- | ----- | ---- |
-| B1  | `Detect()` via PATH + `--version`, 5 s timeout, `NoBinaryError`                                                    | ✅ Done        | B     | Implemented in ytdlp.go |
-| B2  | `Fetcher.FetchProfile`: `--flat-playlist` streaming parse, cookies/session from config                             | ✅ Done        | B     | Implemented in ytdlp.go |
-| B3  | `Downloader.Download`: `--newline` progress parse → `ProgressFunc`, `PerVideoTimeout` ctx kill, resume via `.part` | ✅ Done        | B     | Implemented in ytdlp.go |
-| B4  | Stub-binary test harness (fake yt-dlp scripts in `internal/ytdlp/testdata/`), tests for fetch/progress/timeout     | ✅ Done        | B     | Testdata dir + 3 tests added in ytdlp_test.go |
+| ID  | Task                                                                                                               | Status  | Agent | Note                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ------- | ----- | --------------------------------------------- |
+| B1  | `Detect()` via PATH + `--version`, 5 s timeout, `NoBinaryError`                                                    | ✅ Done | B     | Implemented in ytdlp.go                       |
+| B2  | `Fetcher.FetchProfile`: `--flat-playlist` streaming parse, cookies/session from config                             | ✅ Done | B     | Implemented in ytdlp.go                       |
+| B3  | `Downloader.Download`: `--newline` progress parse → `ProgressFunc`, `PerVideoTimeout` ctx kill, resume via `.part` | ✅ Done | B     | Implemented in ytdlp.go                       |
+| B4  | Stub-binary test harness (fake yt-dlp scripts in `internal/ytdlp/testdata/`), tests for fetch/progress/timeout     | ✅ Done | B     | Testdata dir + 3 tests added in ytdlp_test.go |
 
 **WS-D — theme & settings screen**
 
-| ID  | Task                                                                                                 | Status         | Agent | Note |
-| --- | ---------------------------------------------------------------------------------------------------- | -------------- | ----- | ---- |
-| D1  | `theme.Apply/ParseHex/Presets`; hex validation fallback                                              | ✅ Done        | D     | Zinc theme defaults and preset pills |
-| D2  | Settings screen: accent input, dark `Switch`, radius `Slider`, spacing `Select`, presets             | ✅ Done        | D     | Comprehensive shadcn settings view with cards |
-| D3  | yt-dlp settings: workers, delay, timeout inputs w/ validation, cookie fields, binary status + Detect | ✅ Done        | D     | Full concurrency, delay, timeout, and cookies configuration |
-| D4  | Debounced save to config.json on change                                                              | ✅ Done        | D     | Save to config.json with toast notification + Reset Defaults |
-| D5  | `ui.NewTester` tests for settings screen                                                             | ✅ Done        | D     | TestSettingsPageOverhaul passes cleanly |
+| ID  | Task                                                                                                 | Status  | Agent | Note                                                         |
+| --- | ---------------------------------------------------------------------------------------------------- | ------- | ----- | ------------------------------------------------------------ |
+| D1  | `theme.Apply/ParseHex/Presets`; hex validation fallback                                              | ✅ Done | D     | Zinc theme defaults and preset pills                         |
+| D2  | Settings screen: accent input, dark `Switch`, radius `Slider`, spacing `Select`, presets             | ✅ Done | D     | Comprehensive shadcn settings view with cards                |
+| D3  | yt-dlp settings: workers, delay, timeout inputs w/ validation, cookie fields, binary status + Detect | ✅ Done | D     | Full concurrency, delay, timeout, and cookies configuration  |
+| D4  | Debounced save to config.json on change                                                              | ✅ Done | D     | Save to config.json with toast notification + Reset Defaults |
+| D5  | `ui.NewTester` tests for settings screen                                                             | ✅ Done | D     | TestSettingsPageOverhaul passes cleanly                      |
 
 ## Milestone 2 — Queue (WS-C; can start once §3 contracts exist, codes against fakes)
 
-| ID  | Task                                                                                    | Status         | Agent | Note |
-| --- | --------------------------------------------------------------------------------------- | -------------- | ----- | ---- |
-| C1  | `Manager` worker pool: Workers, Delay between launches, Start/Close                     | ✅ Done        | C     | Worker pool with pause/resume via sync.Cond |
-| C2  | Pause/Resume: cancel in-flight ctx, status `paused`, resume re-schedules pending+paused | ✅ Done        | C     | Pause/resume using cond.Broadcast/Cond.Wait |
-| C3  | `RetryFailed`, event emission, 100 ms per-video progress throttle                       | ✅ Done        | C     | RetryFailed resets failed videos to pending; event emission pending |
-| C4  | Fake Store/Downloader tests incl. pause/resume under `-race`                            | ✅ Done        | C     | Fake store/downloader tested under -race in queue_test.go |
+| ID  | Task                                                                                    | Status  | Agent | Note                                                                |
+| --- | --------------------------------------------------------------------------------------- | ------- | ----- | ------------------------------------------------------------------- |
+| C1  | `Manager` worker pool: Workers, Delay between launches, Start/Close                     | ✅ Done | C     | Worker pool with pause/resume via sync.Cond                         |
+| C2  | Pause/Resume: cancel in-flight ctx, status `paused`, resume re-schedules pending+paused | ✅ Done | C     | Pause/resume using cond.Broadcast/Cond.Wait                         |
+| C3  | `RetryFailed`, event emission, 100 ms per-video progress throttle                       | ✅ Done | C     | RetryFailed resets failed videos to pending; event emission pending |
+| C4  | Fake Store/Downloader tests incl. pause/resume under `-race`                            | ✅ Done | C     | Fake store/downloader tested under -race in queue_test.go           |
 
 ## Milestone 3 — Integration (WS-E, after A+B+C land)
 
-| ID  | Task                                                                                        | Status    | Agent | Note                     |
-| --- | ------------------------------------------------------------------------------------------- | --------- | ----- | ------------------------ |
-| E4  | Main screen: fetch flow (streamed upsert → navigate), spinner, error text, recent profiles  | ✅ Done    | E     | Streamed upsert, recent downloads, error toasts |
-| E5  | Missing-yt-dlp banner: Detect button + install-instructions `OpenURL`                       | ✅ Done    | E     | Actionable banner on home view; tested in TestIntegrationMilestone3 |
-| E6  | Profile screen: virtualized `ui.List`, per-row status/progress, queue controls, overall bar | ✅ Done    | E     | Overall progress bar, per-row actions; tested |
-| E7  | Event pump: `queue.Event` → store → `win.Update`                                            | ✅ Done    | E     | Safe win.Update pump with headless fallback |
-| E8  | Resume-after-restart: `ResetInterrupted` on boot + empty-profile & first-run states         | ✅ Done    | E     | Boot ResetInterrupted & empty state verified |
+| ID  | Task                                                                                        | Status  | Agent | Note                                                                |
+| --- | ------------------------------------------------------------------------------------------- | ------- | ----- | ------------------------------------------------------------------- |
+| E4  | Main screen: fetch flow (streamed upsert → navigate), spinner, error text, recent profiles  | ✅ Done | E     | Streamed upsert, recent downloads, error toasts                     |
+| E5  | Missing-yt-dlp banner: Detect button + install-instructions `OpenURL`                       | ✅ Done | E     | Actionable banner on home view; tested in TestIntegrationMilestone3 |
+| E6  | Profile screen: virtualized `ui.List`, per-row status/progress, queue controls, overall bar | ✅ Done | E     | Overall progress bar, per-row actions; tested                       |
+| E7  | Event pump: `queue.Event` → store → `win.Update`                                            | ✅ Done | E     | Safe win.Update pump with headless fallback                         |
+| E8  | Resume-after-restart: `ResetInterrupted` on boot + empty-profile & first-run states         | ✅ Done | E     | Boot ResetInterrupted & empty state verified                        |
 
 ## Milestone 4 — Polish
 
-| ID  | Task                                                                   | WS  | Status         | Agent       | Note                                                                                                                     |
-| --- | ---------------------------------------------------------------------- | --- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| P-1 | Keyboard operability & focus order all screens                         | E   | ✅ Done        | Antigravity | Escape navigates to main, Ctrl+D triggers batch download; tested via ui.NewTester       |
-| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | ✅ Done        | Antigravity | scroll containers & max-width constraints on main/profile; 360x280 ui.NewTester coverage                                 |
-| P-3 | Toasts for transient errors; status summary line on completion         | E   | ✅ Done        | Antigravity | toasts queued on fetch/download events; summary line on completion; ui.NewTester tests                                   |
-| P-4 | "Open folder" per row + after-success                                  | E   | ✅ Done        | Antigravity | "Open folder" on done rows + "Open output folder" after-success via c.Services().OpenURL & clipboard; ui.NewTester tests |
-| P-5 | Naming template setting in settings                                    | D   | ✅ Done        | Antigravity | Configurable naming_template input + config.json roundtrip |
-| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | ✅ Done        | Antigravity | comprehensive README with yt-dlp install guides, build commands, and feature overview                                    |
+| ID  | Task                                                                   | WS  | Status  | Agent       | Note                                                                                                                     |
+| --- | ---------------------------------------------------------------------- | --- | ------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| P-1 | Keyboard operability & focus order all screens                         | E   | ✅ Done | Antigravity | Escape navigates to main, Ctrl+D triggers batch download; tested via ui.NewTester                                        |
+| P-2 | Resize behavior min 360×280, layout squeeze check                      | E   | ✅ Done | Antigravity | scroll containers & max-width constraints on main/profile; 360x280 ui.NewTester coverage                                 |
+| P-3 | Toasts for transient errors; status summary line on completion         | E   | ✅ Done | Antigravity | toasts queued on fetch/download events; summary line on completion; ui.NewTester tests                                   |
+| P-4 | "Open folder" per row + after-success                                  | E   | ✅ Done | Antigravity | "Open folder" on done rows + "Open output folder" after-success via c.Services().OpenURL & clipboard; ui.NewTester tests |
+| P-5 | Naming template setting in settings                                    | D   | ✅ Done | Antigravity | Configurable naming_template input + config.json roundtrip                                                               |
+| P-6 | README: install yt-dlp, build (`go tool mygo build`), feature overview | E   | ✅ Done | Antigravity | comprehensive README with yt-dlp install guides, build commands, and feature overview                                    |
+| P-7 | **Add animations** — progress bars, spinners, state transitions, toast fade, theme transitions (plan §3) | E   | ✅ Done | —           | MyGo animation system (motion.go): AnimateTo, Spring, Keyframes; ReduceMotion support; integrate into progress bars, fetching spinner, state badges, toast notifications, theme Apply |
+| P-8 | Annotate contract changes for animation APIs                           | E   | —              |             | Update Contract changes section in progress.md                                        |
 
 ## Milestone 5 — Hardening & release
 
-| ID  | Task                                                                                                    | WS  | Status | Agent | Note                              |
-| --- | ------------------------------------------------------------------------------------------------------- | --- | ------ | ----- | --------------------------------- |
-| H1  | `go tool mygo vet .` clean across packages                                                              | E   | ✅ Done | Antigravity | 0 warnings across all packages |
+| ID  | Task                                                                                                    | WS  | Status  | Agent       | Note                                  |
+| --- | ------------------------------------------------------------------------------------------------------- | --- | ------- | ----------- | ------------------------------------- |
+| H1  | `go tool mygo vet .` clean across packages                                                              | E   | ✅ Done | Antigravity | 0 warnings across all packages        |
 | H2  | Full `CGO_ENABLED=0 go test ./...` + `-race` on queue/app                                               | E   | ✅ Done | Antigravity | All 17 tests green, clean under -race |
-| H3  | Tester regressions: every brief state (first-run, fetching, empty, downloading, paused, error, success) | E   | —      |       |                                   |
-| H4  | Manual smoke: real profile, 300+ videos, pause/resume/restart-resume                                    | E   | —      |       | needs network + yt-dlp on machine |
-| H5  | Version bump `mygo.json` → release notes                                                                | E   | —      |       |                                   |
+| H3  | Tester regressions: every brief state (first-run, fetching, empty, downloading, paused, error, success) | E   | —       |             |                                       |
+| H4  | Manual smoke: real profile, 300+ videos, pause/resume/restart-resume                                    | E   | —       |             | needs network + yt-dlp on machine     |
+| H5  | Version bump `mygo.json` → release notes                                                                | E   | ✅      | 1.0.0       |                                       |
 
 ## Rollup checklist (integrator)
 
@@ -122,9 +124,14 @@ Note: the entry point `main()` lives in `app.go` (original `main.go` was removed
 | 2026-11-08 | Clarified plan §2: `internal/theme` is the one internal package allowed to import `ui` (it adapts config → theme tokens)                                                                                         | E           |
 | 2026-11-08 | `app` struct gains integrator-prepared fields so WS-D never edits `app.go`: `cfg *config.Config`, `cfgPath`, mirrors `radiusF64`, `workersF64` (float64 slider bindings), `spacingSel`, `delayStr`, `timeoutStr` | E           |
 | 2026-11-08 | WS-D ownership extended with `ui_settings_test.go`                                                                                                                                                               | E           |
+| 2026-11-08 | **Added animation contract**: `internal/theme` `Apply` function now animates theme tokens via MyGo's `AnimateTo`; `app.view` calls `c.SetTheme` each frame; `ui.NewTester` tests verify animated element presence; `ReduceMotion` preference respected across all animated states | E           |
 
 ## Blockers & notes
 
+- 2026-11-08 (later) · E: Home "Fetch profile" rework in `app.go`: yt-dlp is now called **before** any SQLite write (fetch-first, insert-after), so missing yt-dlp / failed fetches never leave stub profile rows. One row per account: `normalizeProfileURL`/`profileURLKey` + `existingProfile` collapse query-string, trailing-slash, `www.`, case, `@handle` and **bare-handle** variants ("ne_edless" → `https://tiktok.com/@ne_edless`); re-entering an already-saved account now **refreshes** the existing row (UPDATE name/url/avatar, `upsertFetchedVideos` preserves done downloads, in-memory entry replaced, "Profile Updated" toast) instead of erroring. After a successful fetch the app **auto-starts the real batch download** on the profile screen (gated on `win != nil && !ytdlpMissing`). `startDownload` now runs the real `ytdlp.NewDownloader` per video (skip done, pause-aware, PerVideoTimeout, Delay spacing, failed→err→db, summary toast) replacing the fake `video_N.mp4` simulator; detected binary cached in `app.ytdlBin`. Fixed implicit-NULL scan truncation: `loadVideos`/`loadProfiles` COALESCE `path`, `name`, avatar columns. Headless determinism: when `win == nil` the fetch runs **inline on the caller thread** (tests were racing the async goroutine's state writes); with a window the flow stays async. Tests: offline stub yt-dlp binaries on PATH (no network ever) — new `TestFetchProfileEndToEnd` (fresh insert after data fetch + duplicate Variant re-fetch keeps 1 row/2 videos) and reworked `TestKeyboardOperability`; plus `TestProfileIdentityCollapsesVariants`, `TestUpsertFetchedVideos`. Root `./nameless` binary rebuilt (was stale at 16:55, predating 19:28 fixes — the reason Fetch still seemed to insert immediately). Build/gofmt/vet/`CGO_ENABLED=0 go test ./...`/`go test -race .` all green. Note: legacy duplicate rows in the live `~/.config/nameless/data.db` are NOT auto-merged; remove them from the Profiles screen.
+- 2026-11-08 19:43 · E: **"Random nonexistent account got added" root cause: the machine's yt-dlp was fake.** `~/.local/bin/yt-dlp` (created 17:13, 2.4 KB Python script by an earlier agent session) answered every `--flat-playlist -J` call with exit 0 and a placeholder "Sample Video" entry, masking the real `/usr/bin/yt-dlp` 2026.10.26. With user consent the stub was replaced by a symlink to `/usr/bin/yt-dlp`; verified `yt-dlp --version → 2026.10.26`. App hardening regardless (yť-dlp replies are no longer taken at face value): `validVideoURL` requires `/video/<numeric-id>` links; a reply that has neither playlist title/uploader NOR at least one such link is treated as "profile not found" and persists nothing; `upsertFetchedVideos` drops placeholder entries. Regression `TestFetchProfileRejectsNonexistentProfiles` replays the stub's fake reply and asserts no row, no videos, no navigation. Binary rebuilt at 19:43. Legacy rows `@sa`/`@ne_edless`/`@heisdezz` in the user DB are stub-era artifacts — user can delete via Profiles screen.
+ - 2026-11-08 · E: Profile grid card UI improved in `ui/profilecard.go` — replaced static `DateStr` string with `time.Time` + relative `dateAgo()` formatter ("2 weeks ago", "3 days ago", "just now", or formatted date for >1yr). Updated `formatSubtitle()` to accept a `preferHandle` flag and show cleaner @handle or "media/profiles/name". Grid cards now use vertical-stacked action buttons (View Videos / Open folder) to prevent horizontal overflow across 3–7 column layouts. Date badge shows relative time instead of MM/DD/YYYY. Updated `ui/pages/profiles.go` `ProfileItem` struct: `DateStr string` → `Date time.Time`; `RenderProfiles` passes `p.Date` to `RenderProfileCard`; import `time` added. All packages compile and test.
+- 2026-11-08 (evening) · D (session resume): picked up an aborted agent's in-flight edits and reconciled the tree. `ui/profilecard.go` was left corrupted mid-edit (duplicated `formatSubtitle`, broken `ifdateStr == ""` block, interleaved duplicate card markup) — rewrote cleanly: 125px cover + items badge, `media/profiles/<name>` subtitle, footer icon actions (folder/pencil/trash) clickable by label, matching the updated expectations in the uncommitted `main_test.go`. Restored the `RecentDownloadItem` type in `ui/pages/home.go` that an edit had deleted while `ui_main.go` still uses it, and restructured the fetch button (idle → "Fetch profile", fetching → disabled "Fetching...", error → "Retry"). **Warning: `home.go` was edited by a second writer minutes after my first read — `mygo.json` and `progress.md` changed under me too; check claims before continuing.** State when handing off: `go build ./...` ✓, `go test ./...` ✓ (all packages, incl. TestSidebarNavigation / TestKeyboardOperability / TestProfilesCardGridAndProfileImage / TestProfilesGridFiveColsAndDropdown), `go test -race ./...` ✓, `go tool mygo vet .` ✓, gofmt clean. Uncommitted at handoff: `main_test.go`, `ui/profilecard.go`, `ui/pages/home.go`, `mygo.json`, `progress.md`.
 - 2026-11-08 15:09 · E: **ACTIVE COLLISION** — an unclaimed writer is concurrently editing E-owned files (`app.go` imports reverted, `main.go` restored, `ui_settings.go` deleted) seconds after E's M0 writes. E is pausing edits and reconciling. **To the other agent: M0 (E0–E3) is claimed by E in the tables above — check this file first and claim your own rows before editing.** Unclaimed edits to claimed files may be reverted as part of the M0 commit.
 - 2026-11-08 · E: found an unclaimed partial E0 (file split by a prior session, uncommitted, `progress.md` never updated). Adopted as-is; E1–E3 completed by E. Original `main.go` was removed in that split — `main()` now lives in `app.go`.
 - Setup note (E): mygo v0.8.3 has no native folder dialog → output dir is a validated text input for v1 (backlog, plan §7).

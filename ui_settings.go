@@ -15,6 +15,7 @@ func (a *app) viewSettings(c *ui.Context) {
 		OutDir:             &a.outDir,
 		NamingTemplate:     &a.cfg.NamingTemplate,
 		WorkersF64:         &a.workersF64,
+		ConnectionsF64:     &a.connectionsF64,
 		DelayStr:           &a.delayStr,
 		TimeoutStr:         &a.timeoutStr,
 		VideoQuality:       &a.cfg.VideoQuality,

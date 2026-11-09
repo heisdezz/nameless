@@ -55,6 +55,10 @@ func (a *app) viewProfilesList(c *ui.Context) {
 func (a *app) viewProfile(c *ui.Context) {
 	t := c.Theme()
 
+	if a.profileGridCols == "" {
+		a.profileGridCols = "4"
+	}
+
 	// Keyboard shortcut: Ctrl+D to start/download all
 	c.OnWindowShortcut(ui.Ctrl, ui.KeyD, func() {
 		a.startDownload()
@@ -75,12 +79,30 @@ func (a *app) viewProfile(c *ui.Context) {
 
 	videoItems := make([]pages.VideoItem, len(a.videos))
 	for i, v := range a.videos {
+		var thumb *ui.Bitmap
+		dur := ""
+		a.mu.Lock()
+		if a.thumbCache != nil {
+			thumb = a.thumbCache[v.id]
+		}
+		if a.videoDurations != nil {
+			dur = a.videoDurations[v.id]
+		}
+		a.mu.Unlock()
+
+		if thumb == nil && v.path != "" {
+			go a.ensureThumbnail(v.id, v.path)
+		}
+
 		videoItems[i] = pages.VideoItem{
-			ID:     v.id,
-			URL:    v.url,
-			Title:  v.title,
-			Status: v.status,
-			Path:   v.path,
+			ID:        v.id,
+			URL:       v.url,
+			Title:     v.title,
+			Status:    v.status,
+			Path:      v.path,
+			Pct:       v.pct,
+			Duration:  dur,
+			Thumbnail: thumb,
 		}
 	}
 
@@ -93,6 +115,7 @@ func (a *app) viewProfile(c *ui.Context) {
 		ShowOpenOutput: complete && !hasFailed,
 		Downloading:    a.downloading,
 		Paused:         a.paused,
+		GridCols:       &a.profileGridCols,
 		OnBack: func() {
 			a.screen = screenProfilesList
 		},
@@ -117,6 +140,9 @@ func (a *app) viewProfile(c *ui.Context) {
 				target = a.effectiveOutputDir()
 			}
 			a.openFolder(c, target)
+		},
+		OnWatchVideo: func(v pages.VideoItem) {
+			a.openPlayer(v.ID)
 		},
 	})
 }

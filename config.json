@@ -6,6 +6,8 @@
   "write_info_json": false,
   "write_subtitles": false,
   "workers": 3,
+  "concurrent_downloads": 3,
+  "connections_per_download": 5,
   "delay": "1s",
   "per_video_timeout": "5m",
   "cookie": "",
@@ -17,5 +19,10 @@
     "dark": true,
     "radius": 8,
     "spacing": 4
+  },
+  "tikdownloader": {
+    "api_endpoint": "https://tikdownloader.io",
+    "api_cookies": "",
+    "format": "mp4"
   }
 }

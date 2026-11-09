@@ -51,8 +51,24 @@ func TestLoadOrCreateAndSave(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := Default()
 	if cfg.Workers != 3 {
-		t.Errorf("expected default workers=3, got %d", cfg.Workers)
+		t.Errorf("expected default workers (concurrent downloads)=3, got %d", cfg.Workers)
 	}
+	if cfg.ConnectionsPerDownload != 5 {
+		t.Errorf("expected default connections_per_download=5, got %d", cfg.ConnectionsPerDownload)
+	}
+	if cfg.EffectiveConcurrentDownloads() != 3 {
+		t.Errorf("expected effective concurrent=3, got %d", cfg.EffectiveConcurrentDownloads())
+	}
+	// Max concurrent downloads is 5; legacy values clamp for runtime use
+	// but must fail Validate.
+	cfg.Workers = 6
+	if cfg.EffectiveConcurrentDownloads() != 5 {
+		t.Errorf("expected effective concurrent clamped to 5, got %d", cfg.EffectiveConcurrentDownloads())
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Errorf("expected Validate to reject workers=6 (> max 5)")
+	}
+	cfg.Workers = 3
 	if cfg.Delay != time.Second {
 		t.Errorf("expected default delay=1s, got %v", cfg.Delay)
 	}

@@ -260,13 +260,13 @@ func TestSidebarNavigation(t *testing.T) {
 	}
 
 	// Profiles page displays profiles
-	if !tt.HasText("tiktok_dancer") || !tt.HasText("View Videos") {
+	if !tt.HasText("tiktok_dancer") {
 		t.Fatalf("profiles page missing profile card: %v", tt.Texts())
 	}
 
-	// Click "View Videos" on profile card -> navigates to screenProfile
-	if err := tt.Click("View Videos"); err != nil {
-		t.Fatalf("failed to click View Videos: %v", err)
+	// Click profile title on card -> navigates to screenProfile
+	if err := tt.Click("tiktok_dancer"); err != nil {
+		t.Fatalf("failed to click profile title: %v", err)
 	}
 	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
 		t.Fatalf("expected screenProfile with profile 1, got screen=%v profile=%v", a.screen, a.currentProfile)
@@ -281,14 +281,218 @@ func TestSidebarNavigation(t *testing.T) {
 	}
 }
 
+func TestProfileIdentityCollapsesVariants(t *testing.T) {
+	// Different spellings of the same account share one identity key: the
+	// duplicate guard collapses them so one row per account is kept, whether
+	// the user types a full URL, a hostless path, "@handle" or a bare handle.
+	base := profileURLKey("https://www.tiktok.com/@creator")
+	for _, variant := range []string{
+		"https://www.tiktok.com/@CREATOR/",
+		"https://www.tiktok.com/@creator?is_from_webapp=1",
+		"tiktok.com/@creator",
+		"@creator",
+		"creator", // bare handle (e.g. "ne_edless")
+	} {
+		if got := profileURLKey(variant); got != base {
+			t.Fatalf("variant %q: key = %q, want %q", variant, got, base)
+		}
+	}
+	if u := normalizeProfileURL("ne_edless"); !strings.HasSuffix(u, "/@ne_edless") {
+		t.Fatalf("bare handle must resolve to an @-profile URL, got %q", u)
+	}
+}
+
+func TestUpsertFetchedVideos(t *testing.T) {
+	a := &app{cfg: defaultConfig()}
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "seed.db"))
+	if err != nil {
+		t.Fatalf("failed to open isolated test db: %v", err)
+	}
+	defer db.Close()
+	a.db = db
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT, position INTEGER)")
+	db.Exec("INSERT INTO profiles(id, url, name) VALUES(1, 'https://tiktok.com/@creator', 'creator')")
+	// A finished download must survive a re-fetch untouched.
+	db.Exec("INSERT INTO videos(profile_id, url, title, status, path) VALUES(1, 'https://tiktok.com/@creator/video/1', 'v1', 'done', '/dl/v1.mp4')")
+
+	meta := playlistMeta{
+		Title: "creator",
+		Entries: []playlistEntry{
+			{ID: "1", URL: "https://tiktok.com/@creator/video/1", Title: "v1"}, // exists -> untouched
+			{ID: "2", URL: "https://tiktok.com/@creator/video/2", Title: "v2"}, // new
+			{ID: "3", URL: "", Title: "no-url"},                                // skipped
+			{ID: "4", URL: "https://tiktok.com/@creator/video/4", Title: ""},   // new, fallback title
+		},
+	}
+	p := profile{id: 1, url: "https://tiktok.com/@creator", name: "creator"}
+	a.upsertFetchedVideos(&p, meta)
+
+	vids := a.loadVideos(1)
+	if len(vids) != 3 {
+		t.Fatalf("expected 3 videos after upsert, got %d", len(vids))
+	}
+	for _, v := range vids {
+		switch v.url {
+		case "https://tiktok.com/@creator/video/1":
+			if v.status != "done" || v.path != "/dl/v1.mp4" {
+				t.Fatalf("existing done video was modified: %+v", v)
+			}
+		case "https://tiktok.com/@creator/video/2":
+			if v.status != "pending" {
+				t.Fatalf("new video should be pending, got %q", v.status)
+			}
+		case "https://tiktok.com/@creator/video/4":
+			if v.title != "Video 4" {
+				t.Fatalf("expected fallback title, got %q", v.title)
+			}
+		default:
+			t.Fatalf("unexpected video URL %q", v.url)
+		}
+	}
+}
+
+func TestFetchProfileEndToEnd(t *testing.T) {
+	// A stub yt-dlp binary on PATH (no network): prints one flat-playlist
+	// JSON document with a fake title and two usable entries.
+	stubDir := t.TempDir()
+	script := `#!/bin/sh
+cat <<'JSON'
+{"title":"Fake Creator","uploader":"fake","thumbnail":"","entries":[{"id":"1","url":"https://tiktok.com/@fake/video/1","title":"V1"},{"id":"2","url":"https://tiktok.com/@fake/video/2","title":"V2"},{"id":"3","url":"","title":"bad"}]}
+JSON
+`
+	if err := os.WriteFile(filepath.Join(stubDir, "yt-dlp"), []byte(script), 0o777); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	t.Setenv("PATH", stubDir+string(filepath.ListSeparator)+os.Getenv("PATH"))
+
+	a := &app{cfg: defaultConfig()}
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "e2e.db"))
+	if err != nil {
+		t.Fatalf("failed to open isolated test db: %v", err)
+	}
+	defer db.Close()
+	a.db = db
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT, position INTEGER)")
+
+	// 1. Fresh account: data is fetched BEFORE any insert, and the row that
+	// lands in SQLite carries the fetched identity, not the pasted URL.
+	a.profileURL = "https://www.tiktok.com/@fake"
+	a.fetchProfile() // headless: runs to completion synchronously
+	if a.fetching {
+		t.Fatal("headless fetch must complete before returning")
+	}
+	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.name != "Fake Creator" {
+		t.Fatalf("expected navigation to profile details with fetched name, got screen=%v profile=%+v", a.screen, a.currentProfile)
+	}
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM profiles").Scan(&n)
+	if n != 1 {
+		t.Fatalf("expected exactly 1 profile row after fetch, got %d", n)
+	}
+	db.QueryRow("SELECT COUNT(*) FROM videos WHERE profile_id=?", a.currentProfile.id).Scan(&n)
+	if n != 2 {
+		t.Fatalf("expected 2 seeded videos (empty-url entry skipped), got %d", n)
+	}
+
+	// 2. Same account via a different spelling: refreshes in place, never
+	// inserts a second row, and keeps the video list stable.
+	a.profileURL = "@fake" // bare-handle spelling of the same account
+	a.fetchProfile()
+	db.QueryRow("SELECT COUNT(*) FROM profiles").Scan(&n)
+	if n != 1 {
+		t.Fatalf("duplicate guard failed: %d profile rows after re-fetch", n)
+	}
+	db.QueryRow("SELECT COUNT(*) FROM videos").Scan(&n)
+	if n != 2 {
+		t.Fatalf("re-fetch must not duplicate videos, got %d rows", n)
+	}
+}
+
+func TestFetchProfileRejectsNonexistentProfiles(t *testing.T) {
+	// The failure mode observed in the wild: a fake/misbehaving yt-dlp
+	// answers every handle with a placeholder "Sample Video" entry whose
+	// URL is not a real video link. That reply must persist nothing.
+	stubDir := t.TempDir()
+	script := `#!/bin/sh
+cat <<'JSON'
+{"entries":[{"title":"Sample Video","id":"vid1","url":"https://www.tiktok.com/video/sample"}]}
+JSON
+`
+	if err := os.WriteFile(filepath.Join(stubDir, "yt-dlp"), []byte(script), 0o777); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	t.Setenv("PATH", stubDir+string(filepath.ListSeparator)+os.Getenv("PATH"))
+
+	a := &app{cfg: defaultConfig()}
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "reject.db"))
+	if err != nil {
+		t.Fatalf("failed to open isolated test db: %v", err)
+	}
+	defer db.Close()
+	a.db = db
+	db.Exec("CREATE TABLE profiles(id INTEGER PRIMARY KEY, url TEXT, name TEXT, avatar_url TEXT, avatar_path TEXT)")
+	db.Exec("CREATE TABLE videos(id INTEGER PRIMARY KEY, profile_id INTEGER, url TEXT, title TEXT, status TEXT, path TEXT, position INTEGER)")
+
+	a.profileURL = "@random_nonexistent_user"
+	a.fetchProfile() // headless: synchronous
+	if a.screen != screenMain {
+		t.Fatalf("bogus profile data must not navigate to the profile screen, got %v", a.screen)
+	}
+	if a.fetchErr == "" {
+		t.Fatalf("expected an actionable error for placeholder profile data")
+	}
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM profiles").Scan(&n)
+	if n != 0 {
+		t.Fatalf("placeholder yt-dlp reply must persist nothing, found %d rows", n)
+	}
+	db.QueryRow("SELECT COUNT(*) FROM videos").Scan(&n)
+	if n != 0 {
+		t.Fatalf("placeholder yt-dlp reply must seed no videos, found %d", n)
+	}
+}
+
 func TestKeyboardOperability(t *testing.T) {
-	// 1. Enter on profileURL TextInput triggers fetchProfile
+	// Offline yt-dlp stub: "--version" works (Detect passes), everything
+	// else fails — profile data fetch errors out, downloads fail fast.
+	stubDir := t.TempDir()
+	script := `#!/bin/sh
+case "$1" in
+  --version) echo "2026.01.02";;
+  *) exit 1;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(stubDir, "yt-dlp"), []byte(script), 0o777); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	t.Setenv("PATH", stubDir+string(filepath.ListSeparator)+os.Getenv("PATH"))
+
+	// 1. Enter on profileURL TextInput triggers fetchProfile.
+	// Offline stub: fetch fails fast, nothing is saved, and the UI shows
+	// the recoverable error (fetch-first, fail-loudly).
 	a1 := &app{cfg: defaultConfig()}
-	a1.initDB()
+	db1, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "kbd1.db"))
+	if err != nil {
+		t.Fatalf("failed to open isolated test db: %v", err)
+	}
+	defer db1.Close()
+	a1.db = db1
 	a1.profileURL = "https://www.tiktok.com/@testuser"
 	a1.fetchProfile()
-	if !a1.fetching {
-		t.Fatalf("expected a.fetching to be true after fetchProfile")
+	if a1.fetching {
+		t.Fatalf("headless fetch must complete synchronously before returning")
+	}
+	if a1.fetchErr == "" {
+		t.Fatalf("expected a fetch error when yt-dlp cannot deliver profile data")
+	}
+	var rowsn int
+	db1.QueryRow("SELECT COUNT(*) FROM profiles").Scan(&rowsn)
+	// a1.initDB() was not called; the table may not exist yet, in which
+	// case the count stays 0 either way.
+	if rowsn > 0 {
+		t.Fatalf("failed fetch must persist nothing, found %d rows", rowsn)
 	}
 
 	// 2. Escape shortcut on screenSettings returns to screenMain
@@ -357,7 +561,6 @@ func TestDashboardOverviewStatsAndSettings(t *testing.T) {
 		t.Fatalf("settings screen missing download settings: %v", ttSettings.Texts())
 	}
 }
-
 
 func TestRecentDownloads(t *testing.T) {
 	tmpDB := filepath.Join(t.TempDir(), "recent_test.db")
@@ -456,7 +659,6 @@ func TestShadcnSidebarFeatures(t *testing.T) {
 	}
 }
 
-
 func TestProfilesCardGridAndProfileImage(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpDB := filepath.Join(tmpDir, "prof_test.db")
@@ -513,11 +715,13 @@ func TestProfilesCardGridAndProfileImage(t *testing.T) {
 	if !tt.HasText("Archived Profiles") || !tt.HasText("creator1") || !tt.HasText("creator2") {
 		t.Fatalf("profiles grid missing headers or creator cards: %v", tt.Texts())
 	}
-	if !tt.HasText("View Videos") || !tt.HasText("Open folder") {
-		t.Fatalf("profiles card missing action buttons: %v", tt.Texts())
+	if !tt.HasText("media/profiles/creator1") || !tt.HasText("media/profiles/creator2") {
+		t.Fatalf("profiles card missing path subtitle: %v", tt.Texts())
+	}
+	if !tt.HasText("0 items") {
+		t.Fatalf("profiles card missing item count badge: %v", tt.Texts())
 	}
 }
-
 
 func TestProfilesGridFiveColsAndDropdown(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -564,9 +768,10 @@ func TestProfilesGridFiveColsAndDropdown(t *testing.T) {
 		t.Fatalf("expected default gridCols to be '5', got %q", a.gridCols)
 	}
 
-	// 2. Click View Videos on card in 5-column grid (ensures no button overflow or collision)
-	if err := tt.Click("View Videos"); err != nil {
-		t.Fatalf("failed to click View Videos on profile card: %v", err)
+	// 2. Click profile title on card (sidebar item shares the name and navigates the same way)
+	//    ensures no button overflow or collision in the 5-column grid
+	if err := tt.Click("creator1"); err != nil {
+		t.Fatalf("failed to click profile title: %v", err)
 	}
 	if a.screen != screenProfile || a.currentProfile == nil || a.currentProfile.id != 1 {
 		t.Fatalf("expected screenProfile after View Videos, got screen=%v profile=%v", a.screen, a.currentProfile)
@@ -607,7 +812,8 @@ func TestSettingsPageOverhaul(t *testing.T) {
 		"Save Metadata Info JSON",
 		"Save Subtitles & Captions",
 		"Engine & Concurrency",
-		"Parallel Workers",
+		"Concurrent Downloads (Parallel Workers)",
+		"Connections Per Download",
 		"Delay Between Downloads",
 		"Per-Video Timeout",
 		"Custom yt-dlp Executable Path",
@@ -633,7 +839,8 @@ func TestSettingsPageOverhaul(t *testing.T) {
 	// Change values in memory
 	a.outDir = "/custom/downloads"
 	a.cfg.NamingTemplate = "%(id)s.%(ext)s"
-	a.workersF64 = 6
+	a.workersF64 = 5 // concurrent downloads, max 5
+	a.connectionsF64 = 7
 	a.delayStr = "2s"
 	a.timeoutStr = "10m"
 	a.cfg.VideoQuality = "720p"
@@ -662,8 +869,8 @@ func TestSettingsPageOverhaul(t *testing.T) {
 
 	// Test Reset Defaults
 	a.resetSettingsToDefault()
-	if a.outDir != "./downloads" || a.workersF64 != 3 || a.cfg.VideoQuality != "best" {
-		t.Fatalf("reset defaults did not restore defaults: outDir=%q workers=%v quality=%q", a.outDir, a.workersF64, a.cfg.VideoQuality)
+	if a.outDir != "./downloads" || a.workersF64 != 3 || a.connectionsF64 != 5 || a.cfg.VideoQuality != "best" {
+		t.Fatalf("reset defaults did not restore defaults: outDir=%q workers=%v connections=%v quality=%q", a.outDir, a.workersF64, a.connectionsF64, a.cfg.VideoQuality)
 	}
 }
 
