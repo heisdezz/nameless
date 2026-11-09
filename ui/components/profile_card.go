@@ -1,10 +1,12 @@
-package ui
+package components
 
 import (
 	"fmt"
 	"os"
 	"strings"
 	"time"
+
+	"nameless/ui"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -145,7 +147,7 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 			// Pill badge overlaid at bottom-right of the cover (Green stack icon + item count)
 			mygoui.Row(c).Absolute().Right(8).Bottom(8).Padding(3, 8).Gap(5).AlignItems(mygoui.Center).
 				Radius(6).Background(mygoui.Hex("#09090bcc")).Border(1, mygoui.Hex("#27272a")).Children(func() {
-				mygoui.Icon(c, IconLayers).Size(12, 12).TextColor(mygoui.Hex("#22c55e"))
+				mygoui.Icon(c, ui.IconLayers).Size(12, 12).TextColor(mygoui.Hex("#22c55e"))
 				mygoui.Text(c, fmt.Sprintf("%d items", props.VideosCount)).FontSize(11).Bold().TextColor(mygoui.Hex("#ffffff"))
 			})
 		})
@@ -170,7 +172,7 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 			// Bottom row: date on left, pencil + trash icons on right
 			mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
 				mygoui.Row(c).AlignItems(mygoui.Center).Gap(4).Children(func() {
-					mygoui.Icon(c, IconCalendar).Size(9, 9).TextColor(t.TextMuted)
+					mygoui.Icon(c, ui.IconCalendar).Size(9, 9).TextColor(t.TextMuted)
 					mygoui.Text(c, dateStr).FontSize(9).TextColor(t.TextMuted)
 				})
 
@@ -180,7 +182,7 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 							Radius(6).Background(t.Surface)
 						folderBtn.Children(func() {
 							mygoui.Row(c).Fill().Center().Children(func() {
-								mygoui.Icon(c, IconPencil).Size(11, 11).TextColor(t.TextMuted)
+								mygoui.Icon(c, ui.IconPencil).Size(11, 11).TextColor(t.TextMuted)
 							})
 						})
 						if folderBtn.Clicked() {
@@ -192,7 +194,7 @@ func RenderProfileCard(c *mygoui.Context, props ProfileCardProps) {
 							Radius(6).Background(t.Surface)
 						delBtn.Children(func() {
 							mygoui.Row(c).Fill().Center().Children(func() {
-								mygoui.Icon(c, IconTrash).Size(11, 11).TextColor(mygoui.Hex("#ef4444"))
+								mygoui.Icon(c, ui.IconTrash).Size(11, 11).TextColor(mygoui.Hex("#ef4444"))
 							})
 						})
 						if delBtn.Clicked() {

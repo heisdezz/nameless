@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"nameless/ui"
+	"nameless/ui/components"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -89,7 +90,7 @@ func RenderProfiles(c *mygoui.Context, props ProfilesProps) {
 				for _, item := range props.Profiles {
 					p := item
 					c.Key(fmt.Sprintf("prof-card-%d", p.ID))
-					ui.RenderProfileCard(c, ui.ProfileCardProps{
+					components.RenderProfileCard(c, components.ProfileCardProps{
 						ID:          p.ID,
 						Name:        p.Name,
 						URL:         p.URL,

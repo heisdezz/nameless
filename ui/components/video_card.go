@@ -1,7 +1,9 @@
-package ui
+package components
 
 import (
 	"fmt"
+
+	"nameless/ui"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -51,14 +53,14 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 				} else {
 					// Sleek fallback cover placeholder
 					mygoui.Column(c).Fill().Center().Background(mygoui.Hex("#18181f")).Children(func() {
-						mygoui.Icon(c, IconFilm).Size(36, 36).TextColor(mygoui.Hex("#3f3f46"))
+						mygoui.Icon(c, ui.IconFilm).Size(36, 36).TextColor(mygoui.Hex("#3f3f46"))
 					})
 				}
 
 				// Top-Left Badge: Index #
 				mygoui.Row(c).Absolute().Left(8).Top(8).Padding(2, 6).Gap(4).AlignItems(mygoui.Center).
 					Radius(6).Background(mygoui.Hex("#09090bcc")).Border(1, mygoui.Hex("#27272a")).Children(func() {
-					mygoui.Icon(c, IconFilm).Size(10, 10).TextColor(mygoui.Hex("#a1a1aa"))
+					mygoui.Icon(c, ui.IconFilm).Size(10, 10).TextColor(mygoui.Hex("#a1a1aa"))
 					mygoui.Text(c, fmt.Sprintf("#%d", props.Index+1)).FontSize(10).Bold().TextColor(mygoui.Hex("#f4f4f5"))
 				})
 
@@ -70,13 +72,13 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 					} else {
 						switch props.Status {
 						case "done":
-							mygoui.Icon(c, IconCheck).Size(10, 10).TextColor(t.Success)
+							mygoui.Icon(c, ui.IconCheck).Size(10, 10).TextColor(t.Success)
 							mygoui.Text(c, "Done").FontSize(10).Bold().TextColor(t.Success)
 						case "downloading":
-							mygoui.Icon(c, IconWave).Size(10, 10).TextColor(t.Accent)
+							mygoui.Icon(c, ui.IconWave).Size(10, 10).TextColor(t.Accent)
 							mygoui.Text(c, "Downloading").FontSize(10).Bold().TextColor(t.Accent)
 						case "failed":
-							mygoui.Icon(c, IconAlert).Size(10, 10).TextColor(t.Danger)
+							mygoui.Icon(c, ui.IconAlert).Size(10, 10).TextColor(t.Danger)
 							mygoui.Text(c, "Failed").FontSize(10).Bold().TextColor(t.Danger)
 						default:
 							mygoui.Text(c, "Queued").FontSize(10).TextColor(t.TextMuted)
@@ -88,7 +90,7 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 				mygoui.Column(c).Absolute().Fill().Center().Children(func() {
 					mygoui.Box(c).Size(40, 40).Radius(20).Background(mygoui.Hex("#00000088")).
 						Border(1, mygoui.Hex("#ffffff33")).Center().Children(func() {
-						mygoui.Icon(c, IconPlay).Size(16, 16).TextColor(mygoui.Hex("#ffffff"))
+						mygoui.Icon(c, ui.IconPlay).Size(16, 16).TextColor(mygoui.Hex("#ffffff"))
 					})
 				})
 
@@ -121,16 +123,16 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 					mygoui.Row(c).AlignItems(mygoui.Center).Gap(5).Children(func() {
 						switch props.Status {
 						case "done":
-							mygoui.Icon(c, IconCheck).Size(11, 11).TextColor(t.Success)
+							mygoui.Icon(c, ui.IconCheck).Size(11, 11).TextColor(t.Success)
 							mygoui.Text(c, "Downloaded").FontSize(11).TextColor(t.Success)
 						case "downloading":
-							mygoui.Icon(c, IconWave).Size(11, 11).TextColor(t.Accent)
+							mygoui.Icon(c, ui.IconWave).Size(11, 11).TextColor(t.Accent)
 							mygoui.Text(c, "Downloading...").FontSize(11).TextColor(t.Accent)
 						case "failed":
-							mygoui.Icon(c, IconAlert).Size(11, 11).TextColor(t.Danger)
+							mygoui.Icon(c, ui.IconAlert).Size(11, 11).TextColor(t.Danger)
 							mygoui.Text(c, "Failed").FontSize(11).TextColor(t.Danger)
 						default:
-							mygoui.Icon(c, IconDownload).Size(11, 11).TextColor(t.TextMuted)
+							mygoui.Icon(c, ui.IconDownload).Size(11, 11).TextColor(t.TextMuted)
 							mygoui.Text(c, "Pending").FontSize(11).TextColor(t.TextMuted)
 						}
 					})
@@ -140,24 +142,8 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 					}
 				})
 
-				// 3. Actions Row: Watch Button + Open folder
+				// 3. Actions Row: Open folder
 				mygoui.Row(c).FillWidth().Gap(6).AlignItems(mygoui.Center).Children(func() {
-					// 					watchBtn := mygoui.PrimaryButton(c.Key(fmt.Sprintf("vcard-watch-%d", props.ID)), "").
-					// 						Label("Watch").
-					// 						Height(28).
-					// 						Radius(6).Grow(1)
-					//
-					// 					watchBtn.Children(func() {
-					// 						mygoui.Row(c).Fill().Center().Gap(5).Children(func() {
-					// 							mygoui.Icon(c, IconPlay).Size(11, 11).TextColor(mygoui.Hex("#ffffff"))
-					// 							mygoui.Text(c, "Watch").FontSize(12).Bold().TextColor(mygoui.Hex("#ffffff"))
-					// 						})
-					// 					})
-					//
-					// 					if watchBtn.Clicked() && props.OnWatch != nil {
-					// 						props.OnWatch()
-					// 					}
-
 					if props.Status == "done" && props.OnOpenFolder != nil {
 						folderBtn := mygoui.Button(c.Key(fmt.Sprintf("vcard-folder-%d", props.ID)), "").
 							Label("Open folder").
@@ -166,7 +152,7 @@ func RenderVideoCard(c *mygoui.Context, props VideoCardProps) {
 
 						folderBtn.Children(func() {
 							mygoui.Row(c).Fill().Center().Gap(4).Padding(2).Children(func() {
-								mygoui.Icon(c, IconFolder).Size(12, 12).TextColor(t.Text)
+								mygoui.Icon(c, ui.IconFolder).Size(12, 12).TextColor(t.Text)
 								mygoui.Text(c, "Open folder").FontSize(11)
 							})
 						})

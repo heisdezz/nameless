@@ -3,8 +3,11 @@ package pages
 import (
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	"nameless/ui"
+	"nameless/ui/components"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -33,6 +36,17 @@ type ProfileDetailProps struct {
 	Paused         bool
 	OverallPct     float64
 	GridCols       *string
+	// Pagination props
+	Page             int
+	PageSize         int
+	SearchQuery      *string
+	OnPageChange     func(page int)
+	OnPageSizeChange func(size int)
+	// Animation props
+	EnableAnimations bool
+	// Loading state
+	Loading bool
+	// Callbacks
 	OnBack         func()
 	OnDownloadAll  func()
 	OnPause        func()
@@ -41,6 +55,51 @@ type ProfileDetailProps struct {
 	OnOpenOutput   func()
 	OnOpenVideoDir func(path string)
 	OnWatchVideo   func(v VideoItem)
+}
+
+// filterAndPaginate applies search filtering and pagination to the video list.
+func filterAndPaginate(videos []VideoItem, search string, page, pageSize int) ([]VideoItem, int) {
+	// Apply search filter
+	filtered := videos
+	if search != "" {
+		searchLower := strings.ToLower(search)
+		filtered = make([]VideoItem, 0, len(videos))
+		for _, v := range videos {
+			if strings.Contains(strings.ToLower(v.Title), searchLower) {
+				filtered = append(filtered, v)
+			}
+		}
+	}
+
+	// Calculate total pages
+	total := len(filtered)
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	// Clamp page to valid range
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	// Slice for current page
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	if start >= total {
+		return []VideoItem{}, totalPages
+	}
+
+	return filtered[start:end], totalPages
 }
 
 // RenderProfileDetail renders the detailed profile video queue and batch actions.
@@ -53,6 +112,20 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 			cols = val
 		}
 	}
+
+	// Default page size
+	pageSize := props.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	search := ""
+	if props.SearchQuery != nil {
+		search = *props.SearchQuery
+	}
+
+	// Filter and paginate videos
+	pageVideos, totalPages := filterAndPaginate(props.Videos, search, props.Page, pageSize)
 
 	mygoui.Scroll(c).Fill().Children(func() {
 		mygoui.Column(c).Fill().Gap(18).Padding(24).Children(func() {
@@ -106,6 +179,20 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 					})
 				}
 
+				// Search Bar
+				searchRow := mygoui.Row(c).Gap(8).AlignItems(mygoui.Center)
+				searchRow.Children(func() {
+					mygoui.Icon(c, ui.IconSearch).Size(16, 16).TextColor(t.TextMuted)
+					searchField := mygoui.SearchField(c, props.SearchQuery).Placeholder("Search videos...").Width(300)
+					if props.EnableAnimations {
+						searchField = searchField.Transition(mygoui.ElementTransition{
+							Duration: 200 * time.Millisecond,
+							Ease:     mygoui.EaseOut,
+							Enter:    &mygoui.Motion{Opacity: 0},
+						})
+					}
+				})
+
 				// Batch Action Toolbar
 				mygoui.Row(c).Gap(10).AlignItems(mygoui.Center).Children(func() {
 					dlBtn := mygoui.PrimaryButton(c, "").Label("Download all").Radius(6)
@@ -158,60 +245,172 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 				})
 			})
 
-			// Empty Profile State (plan §4, milestone 3 task E6/E8)
-			if len(props.Videos) == 0 {
-				mygoui.Column(c).FillWidth().Padding(36).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Center().Children(func() {
-					mygoui.Icon(c, ui.IconAlert).Size(24, 24).TextColor(t.TextMuted)
-					mygoui.Text(c, "No videos found").Bold().FontSize(15)
-					mygoui.Text(c, "No videos found — the account may be private; try cookies in Settings").TextColor(t.TextMuted).FontSize(13)
-				})
+			// Loading State
+			if props.Loading {
+				// Full grid loader with overlay
+				mygoui.Box(c.Key("loading-grid-overlay")).
+					FillWidth().
+					Height(400).
+					Background(mygoui.Hex("#00000000")).
+					Children(func() {
+						components.RenderLoader(c, components.LoaderProps{
+							Size:        48,
+							Text:        "Loading videos...",
+							ShowOverlay: true,
+							Color:       t.Accent,
+						})
+					})
 			} else {
-				// Videos Section Header with Columns selector (options to change columns min 3 max 7)
-				mygoui.Row(c).AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
-					mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
-						mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Text)
-						mygoui.Text(c, "Videos").Bold().FontSize(16)
-						mygoui.Text(c, fmt.Sprintf("%d items", len(props.Videos))).TextColor(t.TextMuted).FontSize(12)
+				// Empty Profile State (plan §4, milestone 3 task E6/E8)
+				if len(pageVideos) == 0 {
+					if search != "" {
+						// No results for search
+						mygoui.Column(c).FillWidth().Padding(36).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Center().Children(func() {
+							mygoui.Icon(c, ui.IconAlert).Size(24, 24).TextColor(t.TextMuted)
+							mygoui.Text(c, "No videos match your search").Bold().FontSize(15)
+							mygoui.Text(c, fmt.Sprintf("Try a different search term for \"%s\"", search)).TextColor(t.TextMuted).FontSize(13)
+						})
+					} else {
+						// Empty profile
+						mygoui.Column(c).FillWidth().Padding(36).Gap(10).Radius(8).Background(t.Surface).Border(1, t.Border).Center().Children(func() {
+							mygoui.Icon(c, ui.IconAlert).Size(24, 24).TextColor(t.TextMuted)
+							mygoui.Text(c, "No videos found").Bold().FontSize(15)
+							mygoui.Text(c, "No videos found — the account may be private; try cookies in Settings").TextColor(t.TextMuted).FontSize(13)
+						})
+					}
+				} else {
+					// Videos Section Header with Columns selector and page size selector
+					mygoui.Row(c).AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
+						mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+							mygoui.Icon(c, ui.IconWave).Size(16, 16).TextColor(t.Text)
+							mygoui.Text(c, "Videos").Bold().FontSize(16)
+							totalFiltered, _ := filterAndPaginate(props.Videos, search, 1, len(props.Videos))
+							mygoui.Text(c, fmt.Sprintf("%d of %d items", len(pageVideos), len(totalFiltered))).TextColor(t.TextMuted).FontSize(12)
+						})
+
+						// Column count selector: 3 to 7 columns
+						if props.GridCols != nil {
+							mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+								mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)
+								mygoui.Select(c.Key("detail-grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
+							})
+						}
+
+						// Page size selector
+						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
+							mygoui.Text(c, "Per page:").FontSize(12).TextColor(t.TextMuted)
+							pageSizeStr := strconv.Itoa(pageSize)
+							sel := mygoui.Select(c.Key("detail-page-size-select"), &pageSizeStr, []string{"10", "20", "50", "100"}).Width(60)
+							if sel.Changed() && props.OnPageSizeChange != nil {
+								if n, err := strconv.Atoi(pageSizeStr); err == nil && n > 0 {
+									props.OnPageSizeChange(n)
+								}
+							}
+						})
 					})
 
-					// Column count selector: 3 to 7 columns
-					if props.GridCols != nil {
-						mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-							mygoui.Text(c, "Columns:").FontSize(12).TextColor(t.TextMuted)
-							mygoui.Select(c.Key("detail-grid-cols-select"), props.GridCols, []string{"3", "4", "5", "6", "7"}).Width(60)
-						})
-					}
-				})
+					// Video Cards Grid (min 3 max 7 columns) with a sweep
+					// reveal: each card staggers in left-to-right, top to
+					// bottom (delay per docs: rows entering one after
+					// another). No grid-level transition — that faded the
+					// whole grid at once and fought the per-card sweep.
+					grid := mygoui.Grid(c).Columns(cols).Gap(14).FillWidth()
+					grid.Children(func() {
+						for i, item := range pageVideos {
+							v := item
+							idx := i
 
-				// Video Cards Grid (min 3 max 7 columns)
-				mygoui.Grid(c).Columns(cols).Gap(14).FillWidth().Children(func() {
-					for i, item := range props.Videos {
-						v := item
-						idx := i
-						c.Key(fmt.Sprintf("vid-card-item-%d", v.ID))
-						ui.RenderVideoCard(c, ui.VideoCardProps{
-							ID:        v.ID,
-							Index:     idx,
-							Title:     v.Title,
-							URL:       v.URL,
-							Status:    v.Status,
-							Path:      v.Path,
-							Duration:  v.Duration,
-							Pct:       v.Pct,
-							Thumbnail: v.Thumbnail,
-							OnWatch: func() {
-								if props.OnWatchVideo != nil {
-									props.OnWatchVideo(v)
+							// Build the card box with base styling
+							cardBox := mygoui.Box(c).
+								FillWidth().
+								Height(280).
+								Radius(12).
+								Background(t.Surface).
+								Border(1, t.Border).
+								Clip()
+
+							// Sweep reveal: card i enters after i steps,
+							// capped so a full page settles in ~0.8s.
+							if props.EnableAnimations {
+								delay := time.Duration(idx) * 25 * time.Millisecond
+								if delay > 600*time.Millisecond {
+									delay = 600 * time.Millisecond
 								}
-							},
-							OnOpenFolder: func() {
-								if props.OnOpenVideoDir != nil {
-									props.OnOpenVideoDir(v.Path)
-								}
-							},
+								cardBox = cardBox.Transition(mygoui.ElementTransition{
+									Animation: &mygoui.Animation{
+										Duration: 350 * time.Millisecond,
+										Ease:     mygoui.EaseOut,
+										Delay:    delay,
+									},
+									Enter: &mygoui.Motion{Opacity: 0, X: -16, Y: 10, Scale: 0.96},
+								})
+							}
+
+							c.Key(fmt.Sprintf("vid-card-item-%d", v.ID))
+							cardBox.Children(func() {
+								components.RenderVideoCard(c, components.VideoCardProps{
+									ID:        v.ID,
+									Index:     idx,
+									Title:     v.Title,
+									URL:       v.URL,
+									Status:    v.Status,
+									Path:      v.Path,
+									Duration:  v.Duration,
+									Pct:       v.Pct,
+									Thumbnail: v.Thumbnail,
+									OnWatch: func() {
+										if props.OnWatchVideo != nil {
+											props.OnWatchVideo(v)
+										}
+									},
+									OnOpenFolder: func() {
+										if props.OnOpenVideoDir != nil {
+											props.OnOpenVideoDir(v.Path)
+										}
+									},
+								})
+							})
+						}
+					})
+
+					// Pagination Controls
+					if totalPages > 1 {
+						mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Justify(mygoui.Center).Padding(12).Children(func() {
+							// Previous button
+							prevBtn := mygoui.Button(c, "").Label("Previous").Radius(6)
+							if props.Page <= 1 {
+								prevBtn.Disabled(true)
+							}
+							prevBtn.Children(func() {
+								mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(4, 12).Children(func() {
+									mygoui.Icon(c, ui.IconArrowLeft).Size(14, 14)
+									mygoui.Text(c, "Previous")
+								})
+							})
+							if prevBtn.Clicked() && props.Page > 1 && props.OnPageChange != nil {
+								props.OnPageChange(props.Page - 1)
+							}
+
+							// Page indicator
+							mygoui.Text(c, fmt.Sprintf("Page %d of %d", props.Page, totalPages)).TextColor(t.TextMuted).FontSize(13)
+
+							// Next button
+							nextBtn := mygoui.Button(c, "").Label("Next").Radius(6)
+							if props.Page >= totalPages {
+								nextBtn.Disabled(true)
+							}
+							nextBtn.Children(func() {
+								mygoui.Row(c).Gap(6).AlignItems(mygoui.Center).Padding(4, 12).Children(func() {
+									mygoui.Text(c, "Next")
+									// No right arrow icon available; text only
+								})
+							})
+							if nextBtn.Clicked() && props.Page < totalPages && props.OnPageChange != nil {
+								props.OnPageChange(props.Page + 1)
+							}
 						})
 					}
-				})
+				}
 			}
 		})
 	})

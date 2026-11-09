@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"nameless/ui"
+	"nameless/ui/components"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -117,49 +118,35 @@ func RenderHome(c *mygoui.Context, props HomeProps) {
 			})
 
 			// 4 Metric Cards
+			workers := props.Workers
+			if workers <= 0 {
+				workers = 3
+			}
+			version := props.EngineStatus
+			if version == "" {
+				version = "yt-dlp Ready"
+			}
 			mygoui.Row(c).FillWidth().Gap(10).Children(func() {
-				// Stat 1: Downloaded Videos
-				mygoui.Column(c).Fill().Padding(14).Gap(4).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-						mygoui.Icon(c, ui.IconCheck).Size(14, 14).TextColor(t.TextMuted)
-						mygoui.Text(c, "Total Downloaded").TextColor(t.TextMuted).FontSize(11)
-					})
-					mygoui.Text(c, fmt.Sprintf("%d Videos", props.DownloadedCount)).Bold().FontSize(18).TextColor(t.Text)
+				components.RenderStatCard(c, components.StatCardProps{
+					Title: "Total Downloaded",
+					Value: fmt.Sprintf("%d Videos", props.DownloadedCount),
+					Icon:  ui.IconCheck,
 				})
-
-				// Stat 2: Profiles Count
-				mygoui.Column(c).Fill().Padding(14).Gap(4).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-						mygoui.Icon(c, ui.IconFolder).Size(14, 14).TextColor(t.TextMuted)
-						mygoui.Text(c, "Profiles Archived").TextColor(t.TextMuted).FontSize(11)
-					})
-					mygoui.Text(c, fmt.Sprintf("%d Profiles", props.ProfilesCount)).Bold().FontSize(18).TextColor(t.Text)
+				components.RenderStatCard(c, components.StatCardProps{
+					Title: "Profiles Archived",
+					Value: fmt.Sprintf("%d Profiles", props.ProfilesCount),
+					Icon:  ui.IconFolder,
 				})
-
-				// Stat 3: Workers
-				workers := props.Workers
-				if workers <= 0 {
-					workers = 3
-				}
-				mygoui.Column(c).Fill().Padding(14).Gap(4).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-						mygoui.Icon(c, ui.IconWave).Size(14, 14).TextColor(t.TextMuted)
-						mygoui.Text(c, "Concurrency").TextColor(t.TextMuted).FontSize(11)
-					})
-					mygoui.Text(c, fmt.Sprintf("%d Workers", workers)).Bold().FontSize(18).TextColor(t.Text)
+				components.RenderStatCard(c, components.StatCardProps{
+					Title: "Concurrency",
+					Value: fmt.Sprintf("%d Workers", workers),
+					Icon:  ui.IconWave,
 				})
-
-				// Stat 4: Engine Status
-				version := props.EngineStatus
-				if version == "" {
-					version = "yt-dlp Ready"
-				}
-				mygoui.Column(c).Fill().Padding(14).Gap(4).Radius(8).Background(t.Surface).Border(1, t.Border).Children(func() {
-					mygoui.Row(c).AlignItems(mygoui.Center).Gap(6).Children(func() {
-						mygoui.Icon(c, ui.IconSettings).Size(14, 14).TextColor(t.TextMuted)
-						mygoui.Text(c, "Engine").TextColor(t.TextMuted).FontSize(11)
-					})
-					mygoui.Text(c, version).Bold().FontSize(14).TextColor(t.Text)
+				components.RenderStatCard(c, components.StatCardProps{
+					Title:    "Engine",
+					Value:    version,
+					Icon:     ui.IconSettings,
+					FontSize: 14,
 				})
 			})
 

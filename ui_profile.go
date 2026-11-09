@@ -77,23 +77,15 @@ func (a *app) viewProfile(c *ui.Context) {
 		color = t.Danger
 	}
 
+	// One lock for the whole snapshot (was one per video per frame);
+	// thumbnails are kicked from applyProfile/openProfile, not here —
+	// spawning ffmpeg jobs from the per-frame view caused the lag.
+	a.mu.Lock()
+	thumbCache := a.thumbCache
+	videoDurations := a.videoDurations
+	a.mu.Unlock()
 	videoItems := make([]pages.VideoItem, len(a.videos))
 	for i, v := range a.videos {
-		var thumb *ui.Bitmap
-		dur := ""
-		a.mu.Lock()
-		if a.thumbCache != nil {
-			thumb = a.thumbCache[v.id]
-		}
-		if a.videoDurations != nil {
-			dur = a.videoDurations[v.id]
-		}
-		a.mu.Unlock()
-
-		if thumb == nil && v.path != "" {
-			go a.ensureThumbnail(v.id, v.path)
-		}
-
 		videoItems[i] = pages.VideoItem{
 			ID:        v.id,
 			URL:       v.url,
@@ -101,21 +93,34 @@ func (a *app) viewProfile(c *ui.Context) {
 			Status:    v.status,
 			Path:      v.path,
 			Pct:       v.pct,
-			Duration:  dur,
-			Thumbnail: thumb,
+			Duration:  videoDurations[v.id],
+			Thumbnail: thumbCache[v.id],
 		}
 	}
 
 	pages.RenderProfileDetail(c, pages.ProfileDetailProps{
-		ProfileName:    a.currentProfile.name,
-		ProfileURL:     a.currentProfile.url,
-		Videos:         videoItems,
-		SummaryText:    summary,
-		SummaryColor:   color,
-		ShowOpenOutput: complete && !hasFailed,
-		Downloading:    a.downloading,
-		Paused:         a.paused,
-		GridCols:       &a.profileGridCols,
+		ProfileName:      a.currentProfile.name,
+		ProfileURL:       a.currentProfile.url,
+		Videos:           videoItems,
+		SummaryText:      summary,
+		SummaryColor:     color,
+		ShowOpenOutput:   complete && !hasFailed,
+		Downloading:      a.downloading,
+		Paused:           a.paused,
+		OverallPct:       float64(len(a.videos)),
+		GridCols:         &a.profileGridCols,
+		Page:             a.profilePage,
+		PageSize:         a.profilePageSize,
+		SearchQuery:      &a.profileSearch,
+		EnableAnimations: true,
+		Loading:          a.profileLoading,
+		OnPageChange: func(page int) {
+			a.profilePage = page
+		},
+		OnPageSizeChange: func(size int) {
+			a.profilePageSize = size
+			a.profilePage = 1
+		},
 		OnBack: func() {
 			a.screen = screenProfilesList
 		},

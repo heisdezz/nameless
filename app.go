@@ -93,6 +93,16 @@ type app struct {
 	downloading    bool
 	paused         bool // guarded by mu
 
+	// Profile detail loading/pagination state. profileLoading shows the
+	// loader until the async DB load finishes; profileLoadGen discards
+	// stale loads when the user navigates quickly.
+	profileLoading  bool
+	profileLoadGen  int
+	profileSearch   string
+	profilePage     int
+	profilePageSize int
+	thumbInflight   map[int64]bool
+
 	// settings UI mirrors: persistent bindings for float/slider and
 	// duration inputs (ui.Slider binds *float64; durations bind as text).
 	// Owned by WS-D; see progress.md contract changes.
@@ -1096,8 +1106,38 @@ func (a *app) fetchProfile() {
 
 // openProfile navigates to a profile by value (never a pointer into a slice
 // that may be appended to later). UI thread only.
+// The video list is loaded off the UI thread: the profile screen shows
+// its loading state immediately instead of freezing on the DB query
+// (which is slow with many videos) and thumbnail extraction.
 func (a *app) openProfile(p profile) {
-	a.applyProfile(p, a.loadVideos(p.id))
+	pcopy := p
+	a.currentProfile = &pcopy
+	a.screen = screenProfile
+	a.videos = nil
+	a.profilePage = 1
+	a.profileSearch = ""
+	if a.profilePageSize <= 0 {
+		a.profilePageSize = 20
+	}
+	a.profileLoading = true
+	a.profileLoadGen++
+	gen := a.profileLoadGen
+	profileID := p.id
+	go func() {
+		vids := a.loadVideos(profileID)
+		a.onUI(func() {
+			if gen != a.profileLoadGen {
+				return // user navigated away; drop this stale load
+			}
+			a.videos = vids
+			a.profileLoading = false
+			for _, v := range vids {
+				if v.path != "" {
+					go a.ensureThumbnail(v.id, v.path)
+				}
+			}
+		})
+	}()
 }
 
 func (a *app) startDownload() {
@@ -1382,10 +1422,38 @@ func (a *app) animateVideoProgress(id int64, pctFrom, pctTo float64) {
 }
 
 // ensureThumbnail generates a video thumbnail using ffmpeg if not already cached.
+// thumbSem limits concurrent ffmpeg thumbnail extractions.
+var thumbSem = make(chan struct{}, 3)
+
 func (a *app) ensureThumbnail(id int64, videoPath string) {
 	if videoPath == "" {
 		return
 	}
+	// One in-flight job per video: viewProfile runs every frame, and
+	// without this guard it spawned a new ffmpeg process per frame.
+	a.mu.Lock()
+	if a.thumbCache != nil {
+		if _, ok := a.thumbCache[id]; ok {
+			a.mu.Unlock()
+			return
+		}
+	}
+	if a.thumbInflight == nil {
+		a.thumbInflight = make(map[int64]bool)
+	}
+	if a.thumbInflight[id] {
+		a.mu.Unlock()
+		return
+	}
+	a.thumbInflight[id] = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.thumbInflight, id)
+		a.mu.Unlock()
+	}()
+	thumbSem <- struct{}{}
+	defer func() { <-thumbSem }()
 	if a.thumbsDir == "" {
 		dir, _ := os.UserConfigDir()
 		if dir == "" {

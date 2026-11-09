@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"nameless/ui"
+	"nameless/ui/components"
 
 	mygoui "github.com/egoist/mygo/ui"
 )
@@ -482,7 +483,7 @@ func RenderPlayer(c *mygoui.Context, props PlayerProps) {
 							rv := item
 							idx := i
 							c.Key(fmt.Sprintf("rand-vid-%d", rv.ID))
-							ui.RenderVideoCard(c, ui.VideoCardProps{
+							components.RenderVideoCard(c, components.VideoCardProps{
 								ID:        rv.ID,
 								Index:     idx,
 								Title:     rv.Title,
