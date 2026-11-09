@@ -6,21 +6,59 @@ Unlike browser extensions or single-video downloaders, nameless is designed spec
 
 ---
 
+## Screenshots
+
+| Home dashboard | Downloaded profile |
+|:---:|:---:|
+| ![Home dashboard](screenshots/home.png) | ![Downloaded profile](screenshots/downloads.png) |
+
+| In-app player | Fullscreen video mode |
+|:---:|:---:|
+| ![In-app player](screenshots/player.png) | ![Fullscreen video mode](screenshots/fullscreen.png) |
+
+![Settings](screenshots/settings.png)
+
+*Settings — download destination, filename template, quality, additional assets, theme.*
+
+---
+
 ## Features
 
 - **Bulk Profile Downloading**: Fetch and download every video from a TikTok profile without manual per-video links.
 - **SQLite-Backed State & True Resume**: Download progress, metadata, and status (`pending`, `downloading`, `paused`, `done`, `failed`) are persisted to a local SQLite database (`data.db`). Paused or interrupted downloads preserve `.part` files and cleanly resume with `yt-dlp`'s `--continue` mechanism.
 - **Concurrent Worker Pool**: Configurable parallel workers (1–16 concurrent downloads) with staggered launch delays to avoid hitting rate limits.
 - **Resilient Queue Controls**: Download all, pause in-flight downloads, resume unfinished runs, or retry only failed videos with a single click.
+- **Built-In Video Player**: Watch downloaded videos without leaving the app — real playback with sound through the system's media engine (via `mygo`'s `ui/video`), play/pause, seek scrubber, mute toggle, "Up Next" queue, and a randomized "More From Profile" grid.
+- **Fullscreen Video Mode**: One click expands the player to fullscreen video — window goes fullscreen and the app collapses to just the viewport with floating controls; `Escape` steps out.
 - **Customizable Native UI**: Clean desktop interface with adjustable theme tokens (accent color hex, corner radius, spacing scale, dark mode toggle, and presets).
-- **yt-dlp Detection & Power Settings**: Automatic binary detection with version reporting, duration-based timeouts, custom output directory, and optional cookie/session authentication for private or restricted accounts.
+- **yt-dlp Detection & Power Settings**: Automatic binary detection with version reporting, duration-based timeouts, custom output directory, and optional cookie/session authentication for private or restricted accounts. nameless can also download and manage its own yt-dlp copy.
 - **Cross-Platform & Pure Go**: Runs natively on Linux, macOS, and Windows with zero CGO requirements (`CGO_ENABLED=0`).
 
 ---
 
 ## Prerequisites
 
-nameless uses `yt-dlp` as its underlying download engine. `yt-dlp` must be installed on your system and accessible in your `PATH`.
+### `yt-dlp`
+
+nameless uses `yt-dlp` as its underlying download engine. `yt-dlp` must either be installed and accessible in your `PATH`, or you can let nameless download and manage its own copy (see the banner on the Home screen, or **Settings → Engine**).
+
+### In-App Video Playback
+
+The built-in player plays video through the system's own media framework (AVFoundation on macOS, Media Foundation on Windows, GStreamer on Linux):
+
+- **Linux**: the player needs GStreamer 1.x installed and on at runtime:
+  ```bash
+  # Arch Linux
+  sudo pacman -S gstreamer gst-plugins-base gst-plugins-good gst-libav
+  # Debian / Ubuntu
+  sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+  # Fedora
+  sudo dnf install gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-libav
+  ```
+  H.264/AAC MP4s (yt-dlp's default) require `gst-libav` or another H.264 decoder.
+- **macOS / Windows**: no extra installs — the OS media frameworks are built in.
+
+Without a media framework, nameless still shows thumbnails and the **Play in System Player** / **Open Folder** actions keep working.
 
 ### Installing `yt-dlp`
 
@@ -122,7 +160,13 @@ go tool mygo vet .
    - Click **Download all** to queue downloads across the worker pool.
    - Track live percentage and byte progress for each video.
    - Use **Pause** to suspend active downloads, **Resume** to continue, or **Retry failed** to re-queue any errored items.
-4. **Settings**:
+4. **Watch Your Archive**:
+   - Click a video card (cover or title) to open the built-in **Player** page.
+   - Playback starts automatically with sound. Controls on the video: play/pause, a seekable scrubber, elapsed/total time, and a mute toggle. `Space` also toggles play/pause.
+   - The **Up Next** panel lists the following videos in the profile; "More From Profile" shows the rest in a randomized grid (**Shuffle** re-rolls it).
+   - Click the expand button (or use the controls bar) for **fullscreen video mode** — the whole window becomes the player; press `Escape` to step back out.
+   - Prefer your own player? Use **Play in System Player** (mpv/fallback) or **Open Folder** at any time.
+5. **Settings**:
    - Click **Settings** from the main screen to customize theme colors, corner radiuses, and worker concurrency.
    - Configure session cookies (`Cookie`, `SessionID`, or path to an env file) if downloading from accounts requiring authentication.
    - Click **Detect** to refresh `yt-dlp` binary detection and version display.
