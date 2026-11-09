@@ -27,12 +27,16 @@ type SettingsProps struct {
 	SessionID            *string
 	CookiesFromBrowser   *string
 	YTDLPPath            *string
+	TikAPI               *string
+	TikCookies           *string
+	TikFormat            *string
 	AccentHex            *string
 	Dark                 *bool
 	RadiusF64            *float64
 	Spacing              string
 	EngineStatus         string
 	OnBack               func()
+	OnDetect             func()
 	OnSave               func()
 	OnResetDefaults      func()
 	OnSelectAccentPreset func(hex string)
@@ -117,7 +121,7 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
 						mygoui.Text(c, "Video Quality Preference").FontSize(12).Bold()
 						mygoui.TextInput(c, props.VideoQuality).Placeholder("best").FillWidth()
-						mygoui.Text(c, "Quality format selector (e.g. 'best', '1080p', '720p', or 'audio_only').").TextColor(t.TextMuted).FontSize(11)
+						mygoui.Text(c, "Quality format selector (e.g. 'best', '1080p', '720p', or 'audio_only'). When TikDownloader Format is left at the default (mp4), this selects the download format.").TextColor(t.TextMuted).FontSize(11)
 					})
 				}
 
@@ -239,6 +243,51 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 						mygoui.Text(c, "Custom yt-dlp Executable Path").FontSize(12).Bold()
 						mygoui.TextInput(c, props.YTDLPPath).Placeholder("/usr/bin/yt-dlp").FillWidth()
 						mygoui.Text(c, "Leave blank to auto-detect yt-dlp from system PATH.").TextColor(t.TextMuted).FontSize(11)
+					})
+				}
+
+				// Engine status + Detect (previously passed but never rendered)
+				if props.EngineStatus != "" || props.OnDetect != nil {
+					status := props.EngineStatus
+					if status == "" {
+						status = "yt-dlp status unknown — press Detect"
+					}
+					mygoui.Row(c).FillWidth().AlignItems(mygoui.Center).Justify(mygoui.SpaceBetween).Children(func() {
+						mygoui.Text(c, status).FontSize(12).TextColor(t.TextMuted)
+						if props.OnDetect != nil {
+							if mygoui.Button(c.Key("detect-ytdlp-btn"), "Detect yt-dlp").Radius(6).Clicked() {
+								props.OnDetect()
+							}
+						}
+					})
+				}
+
+				mygoui.Box(c).Height(1).FillWidth().Background(t.Border)
+
+				// TikDownloader engine (video files come from tikdownloader.io;
+				// yt-dlp is only used for profile URLs/metadata + sidecars)
+				mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+					mygoui.Text(c, "TikDownloader Engine").FontSize(12).Bold()
+					mygoui.Text(c, "API used for the actual video file downloads.").TextColor(t.TextMuted).FontSize(11)
+				})
+				if props.TikAPI != nil {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+						mygoui.Text(c, "TikDownloader API Endpoint").FontSize(12).Bold()
+						mygoui.TextInput(c, props.TikAPI).Placeholder("https://tikdownloader.io").FillWidth()
+					})
+				}
+				if props.TikCookies != nil {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+						mygoui.Text(c, "TikDownloader API Cookies").FontSize(12).Bold()
+						mygoui.TextInput(c, props.TikCookies).Placeholder("cf_clearance=...").FillWidth()
+						mygoui.Text(c, "Optional cookies for the tikdownloader.io API (separate from TikTok cookies above).").TextColor(t.TextMuted).FontSize(11)
+					})
+				}
+				if props.TikFormat != nil {
+					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+						mygoui.Text(c, "TikDownloader Format").FontSize(12).Bold()
+						mygoui.TextInput(c, props.TikFormat).Placeholder("mp4").FillWidth()
+						mygoui.Text(c, "Format selector for tikdownloader.io (mp4, hd, 720p, 1080p, best). Non-default values win over Video Quality above.").TextColor(t.TextMuted).FontSize(11)
 					})
 				}
 			})

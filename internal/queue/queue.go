@@ -169,6 +169,6 @@ func (m *Manager) workerLoop(profileID int64, outDir string) {
 		// Pull next pending video; in a full implementation this would
 		// query the store for the next video by position.
 		// For now, sleep and yield.
-		time.Sleep(time.Duration(m.cfg.Delay) * time.Second)
+		time.Sleep(m.cfg.Delay) // cfg.Delay is already a time.Duration
 	}
 }

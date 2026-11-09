@@ -326,6 +326,69 @@ func extractDownloadURL(html string) (string, error) {
 	return "", fmt.Errorf("could not extract download URL from API response")
 }
 
+// VideoMeta carries the yt-dlp metadata used for filename templating.
+type VideoMeta struct {
+	ID         string
+	Title      string
+	Uploader   string
+	UploadDate string // YYYYMMDD, or empty
+}
+
+// sanitizeSegment makes a template segment safe for filesystems.
+func sanitizeSegment(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('_')
+		default:
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if len(out) > 80 {
+		out = strings.Trim(out[:80], "_")
+	}
+	return out
+}
+
+// ApplyNamingTemplate expands a yt-dlp-style template such as
+// "%(upload_date)s_%(id)s_%(title)s.%(ext)s" into a safe filename.
+// Unknown tags are left as-is; an empty template or empty result falls
+// back to "tiktok_<id>.<ext>".
+func ApplyNamingTemplate(template string, meta VideoMeta, ext string) string {
+	if ext == "" {
+		ext = "mp4"
+	}
+	id := meta.ID
+	if id == "" {
+		id = "unknown"
+	}
+	title := sanitizeSegment(meta.Title)
+	if title == "" {
+		title = "tiktok_" + sanitizeSegment(id)
+	}
+	date := meta.UploadDate
+	if date == "" {
+		date = time.Now().Format("20060102")
+	}
+	repl := strings.NewReplacer(
+		"%(id)s", sanitizeSegment(id),
+		"%(title)s", title,
+		"%(upload_date)s", sanitizeSegment(date),
+		"%(uploader)s", sanitizeSegment(meta.Uploader),
+		"%(ext)s", ext,
+	)
+	name := repl.Replace(template)
+	name = strings.TrimSpace(name)
+	if name == "" || name == "."+ext {
+		name = "tiktok_" + sanitizeSegment(id) + "." + ext
+	}
+	name = filepath.Base(name)
+	return name
+}
+
 // generateSafeFilename creates a safe filename from a URL
 func generateSafeFilename(url string) string {
 	// Extract the video ID or create a sanitized version

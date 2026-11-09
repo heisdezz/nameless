@@ -26,6 +26,9 @@ func (a *app) viewSettings(c *ui.Context) {
 		SessionID:          &a.cfg.SessionID,
 		CookiesFromBrowser: &a.cfg.CookiesFromBrowser,
 		YTDLPPath:          &a.cfg.YTDLPPath,
+		TikAPI:             &a.cfg.TikDownloaderAPI,
+		TikCookies:         &a.cfg.TikDownloaderCookies,
+		TikFormat:          &a.cfg.TikDownloaderFormat,
 		AccentHex:          &a.cfg.Theme.AccentHex,
 		Dark:               &a.cfg.Theme.Dark,
 		RadiusF64:          &a.radiusF64,
@@ -33,6 +36,9 @@ func (a *app) viewSettings(c *ui.Context) {
 		EngineStatus:       a.ytdlpVersion,
 		OnBack: func() {
 			a.screen = screenMain
+		},
+		OnDetect: func() {
+			a.detectYTDLP()
 		},
 		OnSave: func() {
 			a.saveSettings()

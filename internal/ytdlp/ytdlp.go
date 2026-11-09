@@ -83,6 +83,25 @@ type Downloader interface {
 	Download(ctx context.Context, cfg *config.Config, videoURL, outDir string, onProgress ProgressFunc) (string, error)
 }
 
+// AuthArgs returns yt-dlp arguments for the configured authentication,
+// in precedence order: browser cookies > cookies file > sessionid header.
+// Append these after the primary verb flags (so $1 stays the verb) and
+// before the URL.
+func AuthArgs(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	switch {
+	case cfg.CookiesFromBrowser != "":
+		return []string{"--cookies-from-browser", cfg.CookiesFromBrowser}
+	case cfg.Cookie != "":
+		return []string{"--cookies", cfg.Cookie}
+	case cfg.SessionID != "":
+		return []string{"--add-header", "Cookie: sessionid=" + cfg.SessionID}
+	}
+	return nil
+}
+
 type fetcher struct{ binary Binary }
 
 func NewFetcher(bin Binary) Fetcher { return &fetcher{binary: bin} }
@@ -95,7 +114,9 @@ func (f *fetcher) FetchProfile(ctx context.Context, cfg *config.Config, profileU
 	// Use --dump-json to get JSON for a single video (or --flat-playlist for playlists).
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--dump-json", profileURL)
+	args := append([]string{"--dump-json"}, AuthArgs(cfg)...)
+	args = append(args, profileURL)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -141,7 +162,10 @@ func (d *downloader) Download(ctx context.Context, cfg *config.Config, videoURL,
 	outFile := outDir + "/video_" + fmt.Sprintf("%d", time.Now().Unix()) + ".mp4"
 	ctx, cancel := context.WithTimeout(ctx, cfg.PerVideoTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--newline", "-o", outFile, videoURL)
+	args := []string{"--newline"}
+	args = append(args, AuthArgs(cfg)...)
+	args = append(args, "-o", outFile, videoURL)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Start()
 	// Wait for completion or context cancellation.
 	select {

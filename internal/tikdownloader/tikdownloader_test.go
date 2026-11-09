@@ -79,3 +79,17 @@ func TestDownloadFileParallelAndSingle(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyNamingTemplate(t *testing.T) {
+	got := ApplyNamingTemplate("%(upload_date)s_%(id)s_%(title)s.%(ext)s",
+		VideoMeta{ID: "123", Title: "Hello World! (2026)", Uploader: "someone", UploadDate: "20261109"}, "mp4")
+	if got != "20261109_123_Hello_World_2026.mp4" {
+		t.Fatalf("got %q", got)
+	}
+	if got := ApplyNamingTemplate("", VideoMeta{ID: "9"}, "mp4"); got != "tiktok_9.mp4" {
+		t.Fatalf("empty template: got %q", got)
+	}
+	if got := ApplyNamingTemplate("%(uploader)s/%(id)s.%(ext)s", VideoMeta{ID: "1", Uploader: "a/b"}, "mp4"); strings.Contains(got, "/") {
+		t.Fatalf("path separator not stripped: %q", got)
+	}
+}

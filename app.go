@@ -339,17 +339,13 @@ func (a *app) deleteProfile(profileID int64) {
 	a.showToast("Profile Removed", "Profile was deleted from archive", "info")
 }
 
-// detectYTDLP probes system PATH for yt-dlp binary (plan §4, milestone 3 task E5).
+// detectYTDLP re-probes yt-dlp (custom path first, then PATH) and
+// refreshes the Settings engine status. Plan §4, milestone 3 task E5.
 func (a *app) detectYTDLP() {
-	bin, err := ytdlp.Detect()
-	if err != nil {
-		a.ytdlpMissing = true
-		a.ytdlpVersion = "yt-dlp Missing"
-		a.showToast("yt-dlp Missing", "yt-dlp was not found on system PATH", "error")
-	} else {
-		a.ytdlpMissing = false
-		a.ytdlpVersion = "yt-dlp " + bin.Version
+	if a.probeYtdlp() {
 		a.showToast("yt-dlp Ready", "Detected "+a.ytdlpVersion, "success")
+	} else {
+		a.showToast("yt-dlp Missing", "yt-dlp was not found (custom path or system PATH)", "error")
 	}
 }
 
@@ -932,7 +928,9 @@ func (a *app) fetchProfile() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", url)
+		fetchArgs := append([]string{"--flat-playlist", "-J"}, ytdlp.AuthArgs(a.cfg)...)
+		fetchArgs = append(fetchArgs, url)
+		cmd := exec.CommandContext(ctx, a.ytDLPBin(a.cfg), fetchArgs...)
 		out, err := cmd.Output()
 		if err != nil {
 			msg := "yt-dlp failed to fetch profile info: " + err.Error()
@@ -1120,7 +1118,7 @@ func (a *app) startDownload() {
 	}
 	// Use tikdownloader.io for actual video downloading. Connections per
 	// download (default 5) is separate from concurrent downloads below.
-	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, cfg.TikDownloaderFormat, cfg.EffectiveConnectionsPerDownload())
+	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, effectiveTikFormat(cfg), cfg.EffectiveConnectionsPerDownload())
 	outDir := a.effectiveOutputDir()
 	// Snapshot video IDs by URL on the UI thread; workers must not race
 	// with UI mutations of a.videos.
@@ -1134,7 +1132,9 @@ func (a *app) startDownload() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "yt-dlp", "--flat-playlist", "-J", a.currentProfile.url)
+		fetchArgs := append([]string{"--flat-playlist", "-J"}, ytdlp.AuthArgs(cfg)...)
+		fetchArgs = append(fetchArgs, a.currentProfile.url)
+		cmd := exec.CommandContext(ctx, a.ytDLPBin(cfg), fetchArgs...)
 		out, err := cmd.Output()
 		if err != nil {
 			a.showToast("Fetch Error", "yt-dlp failed to fetch profile info", "error")
@@ -1147,9 +1147,10 @@ func (a *app) startDownload() {
 			Title    string `json:"title"`
 			Uploader string `json:"uploader"`
 			Entries  []struct {
-				ID    string `json:"id"`
-				URL   string `json:"url"`
-				Title string `json:"title"`
+				ID         string `json:"id"`
+				URL        string `json:"url"`
+				Title      string `json:"title"`
+				UploadDate string `json:"upload_date"`
 			} `json:"entries"`
 		}
 		if json.Unmarshal(out, &meta) != nil {
@@ -1164,6 +1165,7 @@ func (a *app) startDownload() {
 		type job struct {
 			id       int64
 			videoURL string
+			meta     tikdownloader.VideoMeta
 		}
 		jobs := make(chan job)
 		var wg sync.WaitGroup
@@ -1176,7 +1178,10 @@ func (a *app) startDownload() {
 					a.waitWhilePaused()
 					id := j.id
 					a.onUI(func() { a.setVideoStatus(id, "downloading") })
-					result, err := dl.DownloadVideo(context.Background(), j.videoURL, outDir)
+					// Per-video timeout from Settings (default 5m).
+					dlCtx, dlCancel := context.WithTimeout(context.Background(), cfg.PerVideoTimeout)
+					result, err := dl.DownloadVideo(dlCtx, j.videoURL, outDir)
+					dlCancel()
 					if err != nil {
 						if a.db != nil {
 							a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)
@@ -1184,10 +1189,18 @@ func (a *app) startDownload() {
 						a.onUI(func() { a.setVideoStatus(id, "failed") })
 						continue
 					}
+					// Apply the naming template, then fetch sidecars.
+					finalPath := a.renameWithTemplate(cfg, result.Path, j.meta)
+					_ = a.downloadSidecars(cfg, j.videoURL, finalPath)
 					if a.db != nil {
-						a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", result.Path, id)
+						a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", finalPath, id)
 					}
-					a.onUI(func() { a.setVideoDone(id, result.Path) })
+					a.onUI(func() { a.setVideoDone(id, finalPath) })
+					// Delay between downloads from Settings.
+					if cfg.Delay > 0 {
+						a.waitWhilePaused()
+						time.Sleep(cfg.Delay)
+					}
 				}
 			}()
 		}
@@ -1204,7 +1217,7 @@ func (a *app) startDownload() {
 					break
 				}
 			}
-			jobs <- job{id: id, videoURL: entry.URL}
+			jobs <- job{id: id, videoURL: entry.URL, meta: tikdownloader.VideoMeta{ID: entry.ID, Title: entry.Title, Uploader: meta.Title, UploadDate: entry.UploadDate}}
 		}
 		close(jobs)
 		wg.Wait()
