@@ -15,23 +15,26 @@ type SettingsProps struct {
 	// WorkersF64 binds concurrent downloads (videos in flight at once,
 	// default 3, max 5). ConnectionsF64 binds connections per single
 	// download (default 5) — a different limit, not to be confused.
-	WorkersF64           *float64
-	ConnectionsF64       *float64
-	DelayStr             *string
-	TimeoutStr           *string
-	VideoQuality         *string
-	WriteThumbnail       *bool
-	WriteInfoJSON        *bool
-	WriteSubtitles       *bool
-	Cookie               *string
-	SessionID            *string
-	CookiesFromBrowser   *string
-	YTDLPPath            *string
-	TikAPI               *string
-	TikCookies           *string
-	TikFormat            *string
-	AccentHex            *string
-	Dark                 *bool
+	WorkersF64         *float64
+	ConnectionsF64     *float64
+	DelayStr           *string
+	TimeoutStr         *string
+	VideoQuality       *string
+	WriteThumbnail     *bool
+	WriteInfoJSON      *bool
+	WriteSubtitles     *bool
+	Cookie             *string
+	SessionID          *string
+	CookiesFromBrowser *string
+	YTDLPPath          *string
+	TikAPI             *string
+	TikCookies         *string
+	TikFormat          *string
+	AccentHex          *string
+	Dark               *bool
+	// ThemePreset names the selected full-color scheme from
+	// ui.ThemePresets (nil hides the scheme picker entirely).
+	ThemePreset          *string
 	RadiusF64            *float64
 	Spacing              string
 	EngineStatus         string
@@ -40,6 +43,7 @@ type SettingsProps struct {
 	OnSave               func()
 	OnResetDefaults      func()
 	OnSelectAccentPreset func(hex string)
+	OnSelectThemePreset  func(name string)
 	OnSelectSpacing      func(spacing string)
 	SaveByUsername       *bool
 }
@@ -360,9 +364,66 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 						mygoui.Icon(c, ui.IconSidebar).Size(16, 16).TextColor(t.Text)
 						mygoui.Text(c, "Theme & Appearance").Bold().FontSize(15)
 					})
-					mygoui.Text(c, "Theme & Appearance").FontSize(11).TextColor(t.TextMuted)
+					mygoui.Text(c, "Color scheme, accent, spacing density, and rounded corners.").FontSize(11).TextColor(t.TextMuted)
 				})
 				mygoui.Text(c, "Customize application color accents, spacing density, and rounded corners.").TextColor(t.TextMuted).FontSize(12)
+
+				// Theme Scheme Picker: full-color presets painted with
+				// their own tokens so the cards preview the look.
+				if props.ThemePreset != nil {
+					all := ui.ThemePresets()
+					mygoui.Column(c).Gap(8).FillWidth().Children(func() {
+						mygoui.Text(c, "Theme").FontSize(12).Bold()
+						// 3 cards per row on a 2-row grid; keep a gap
+						// column out so each card fills evenly.
+						const perRow = 3
+						for row := 0; row*perRow < len(all); row++ {
+							lo := row * perRow
+							hi := lo + perRow
+							if hi > len(all) {
+								hi = len(all)
+							}
+							mygoui.Row(c).FillWidth().Gap(10).Children(func() {
+								// Trailing filler keeps partial rows left-aligned.
+								for i := lo; i < hi; i++ {
+									preset := all[i]
+									selected := *props.ThemePreset == preset.Name
+									card := mygoui.Box(c.Key("themepreset-" + preset.Name)).FillWidth().Radius(10)
+									if selected {
+										card.Border(2, t.Accent)
+									} else {
+										card.Border(1, t.Border)
+									}
+									card.Padding(10).Gap(8)
+									card.Children(func() {
+										// Palette preview strip: background,
+										// surface, accent, then danger.
+										mygoui.Row(c).FillWidth().Height(22).Gap(4).Children(func() {
+											for _, hex := range []string{preset.Background, preset.Surface, preset.Accent, preset.Danger} {
+												mygoui.Box(c).Fill().Radius(4).
+													Background(mygoui.Hex(hex)).
+													Border(1, t.Border)
+											}
+										})
+										mygoui.Row(c).FillWidth().Justify(mygoui.SpaceBetween).AlignItems(mygoui.Center).Children(func() {
+											if selected {
+												mygoui.Text(c, preset.Name).FontSize(11).Bold().TextColor(t.Accent)
+											} else {
+												mygoui.Text(c, preset.Name).FontSize(11).TextColor(t.Text)
+											}
+											if selected {
+												mygoui.Icon(c, ui.IconCheck).Size(12, 12).TextColor(t.Accent)
+											}
+										})
+									})
+									if card.Clicked() && props.OnSelectThemePreset != nil {
+										props.OnSelectThemePreset(preset.Name)
+									}
+								}
+							})
+						}
+					})
+				}
 
 				// Accent Color & Presets
 				if props.AccentHex != nil {

@@ -59,6 +59,66 @@ func TestLightShadcnTheme(t *testing.T) {
 	}
 }
 
+func TestApplyDarkPresetRecolorsWindow(t *testing.T) {
+	base := appui.ShadcnTheme()
+	cfg := config.ThemeConfig{Preset: "Nord", AccentHex: "#88c0d0", Dark: true, Radius: 8, Spacing: 4}
+	want, _ := appui.ThemePresetByName("Nord")
+	Apply(&base, cfg)
+	wantBG, _ := ParseHex(want.Background)
+	wantText, _ := ParseHex(want.Text)
+	wantDanger, _ := ParseHex(want.Danger)
+	if base.Background != wantBG {
+		t.Fatalf("dark preset background not applied: got %+v want %+v", base.Background, wantBG)
+	}
+	if base.Text != wantText {
+		t.Fatalf("dark preset text not applied: got %+v want %+v", base.Text, wantText)
+	}
+	if base.Danger != wantDanger {
+		t.Fatalf("dark preset danger not applied: got %+v want %+v", base.Danger, wantDanger)
+	}
+}
+
+func TestApplyLightPresetKeepsBaseSurfaces(t *testing.T) {
+	base := appui.LightShadcnTheme()
+	baseBackground := base.Background
+	baseSurface := base.Surface
+	Apply(&base, config.ThemeConfig{Preset: "Tokyo Night", AccentHex: "#7aa2f7", Dark: false, Radius: 8, Spacing: 4})
+	if base.Background != baseBackground || base.Surface != baseSurface {
+		t.Fatalf("light mode must keep zinc surfaces: bg=%+v surface=%+v", base.Background, base.Surface)
+	}
+	wantAccent, _ := ParseHex("#7aa2f7")
+	if base.Accent != wantAccent {
+		t.Fatalf("light mode should keep configured accent: got %+v want %+v", base.Accent, wantAccent)
+	}
+}
+
+func TestApplyUnknownPresetFallsBack(t *testing.T) {
+	base := appui.ShadcnTheme()
+	Apply(&base, config.ThemeConfig{Preset: "Nope", AccentHex: "#f43f5e", Dark: true, Radius: 8, Spacing: 4})
+	if base.Background.R != 9 || base.Background.G != 9 || base.Background.B != 11 {
+		t.Fatalf("unknown preset should keep shadcn base: %+v", base.Background)
+	}
+}
+
+func TestPresetPickerCoversPopularThemes(t *testing.T) {
+	var names []string
+	for _, p := range appui.ThemePresets() {
+		names = append(names, p.Name)
+	}
+	want := []string{"Shadcn", "Catppuccin", "Atom One", "Dracula", "Nord", "Tokyo Night"}
+	if len(names) != len(want) {
+		t.Fatalf("expected %d presets, got %v", len(want), names)
+	}
+	for i, name := range want {
+		if names[i] != name {
+			t.Fatalf("preset %d = %q, want %q (all: %v)", i, names[i], name, names)
+		}
+		if _, ok := appui.ThemePresetByName(name); !ok {
+			t.Fatalf("ThemePresetByName(%q) should find preset", name)
+		}
+	}
+}
+
 func TestPresetsMatchSettingsUI(t *testing.T) {
 	for _, name := range []string{"Zinc", "Emerald", "Violet", "Indigo", "Rose"} {
 		if _, ok := Presets()[name]; !ok {

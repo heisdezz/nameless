@@ -32,6 +32,7 @@ const (
 	DefaultVideoQuality     = "best"
 	DefaultEnvFile          = ".env"
 	DefaultAccentHex        = "#fafafa"
+	DefaultThemePreset      = "Shadcn"
 	DefaultRadius           = float32(8) // DIP
 	DefaultSpacing          = float32(4) // mygo spacing unit
 	// ConnectionsPerDownload is how many parallel connections a single
@@ -43,6 +44,9 @@ const (
 
 // ThemeConfig is the persisted theme state; internal/theme adapts it to ui.Theme.
 type ThemeConfig struct {
+	// Preset names a full-surface color theme (see ui.ThemePresets);
+	// unknown names fall back to the shadcn default.
+	Preset    string // "Shadcn", "Catppuccin", "Atom One", "Dracula", "Nord", "Tokyo Night"
 	AccentHex string // "#4f46e5"
 	Dark      bool
 	Radius    float32 // DIP, default 12
@@ -74,6 +78,9 @@ type Config struct {
 	TikDownloaderAPI          string // tikdownloader.io API endpoint
 	TikDownloaderCookies      string // cookies for API auth
 	TikDownloaderFormat       string // format selector (mp4, hd, etc.)
+	// SaveByUsername opts into saving downloaded videos into a
+	// per-uploader subdirectory under the default download location.
+	SaveByUsername bool
 }
 
 // Default returns the settings used when config.json is absent or incomplete.
@@ -89,6 +96,7 @@ func Default() *Config {
 		Delay:                   DefaultDelay,
 		PerVideoTimeout:         DefaultPerVideoTimeout,
 		Theme: ThemeConfig{
+			Preset:    DefaultThemePreset,
 			AccentHex: DefaultAccentHex,
 			Dark:      true,
 			Radius:    DefaultRadius,
@@ -97,6 +105,7 @@ func Default() *Config {
 		TikDownloaderAPI:     "https://tikdownloader.io",
 		TikDownloaderCookies: "",
 		TikDownloaderFormat:  "mp4",
+		SaveByUsername:       false,
 	}
 }
 
@@ -127,6 +136,7 @@ func (c *Config) EffectiveConnectionsPerDownload() int {
 
 // themeFile mirrors the "theme" object in config.json.
 type themeFile struct {
+	Preset  string  `json:"preset"`
 	Accent  string  `json:"accent"`
 	Dark    bool    `json:"dark"`
 	Radius  float32 `json:"radius"`
@@ -162,6 +172,7 @@ type configFile struct {
 	PerVideoTimeout        string     `json:"per_video_timeout"`
 	PreferYTDLP            bool       `json:"prefer_ytdlp,omitempty"`
 	InstallYTDLP           bool       `json:"install_ytdlp,omitempty"`
+	SaveByUsername         bool       `json:"save_by_username,omitempty"`
 	Theme                  *themeFile `json:"theme,omitempty"`
 	TikDownloader          *tikFile   `json:"tikdownloader,omitempty"`
 }
@@ -309,8 +320,12 @@ func parse(raw []byte, path string) (*Config, error) {
 	}
 	cfg.PreferYTDLP = f.PreferYTDLP
 	cfg.InstallYTDLP = f.InstallYTDLP
+	cfg.SaveByUsername = f.SaveByUsername
 
 	if t := f.Theme; t != nil {
+		if t.Preset != "" {
+			cfg.Theme.Preset = t.Preset
+		}
 		if t.Accent != "" {
 			cfg.Theme.AccentHex = t.Accent
 		}
@@ -345,7 +360,9 @@ func (c *Config) toFile() configFile {
 		PerVideoTimeout:         c.PerVideoTimeout.String(),
 		PreferYTDLP:             c.PreferYTDLP,
 		InstallYTDLP:            c.InstallYTDLP,
+		SaveByUsername:          c.SaveByUsername,
 		Theme: &themeFile{
+			Preset:  c.Theme.Preset,
 			Accent:  c.Theme.AccentHex,
 			Dark:    c.Theme.Dark,
 			Radius:  c.Theme.Radius,

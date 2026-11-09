@@ -23,7 +23,9 @@ func TestLoadOrCreateAndSave(t *testing.T) {
 	cfg.Workers = 5
 	cfg.Delay = 2 * time.Second
 	cfg.PerVideoTimeout = 10 * time.Minute
+	cfg.Theme.Preset = "Catppuccin"
 	cfg.Theme.AccentHex = "#ff0000"
+	cfg.SaveByUsername = true
 
 	if err := cfg.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -43,8 +45,14 @@ func TestLoadOrCreateAndSave(t *testing.T) {
 	if cfg2.PerVideoTimeout != 10*time.Minute {
 		t.Errorf("expected timeout=10m, got %v", cfg2.PerVideoTimeout)
 	}
+	if cfg2.Theme.Preset != "Catppuccin" {
+		t.Errorf("expected theme preset Catppuccin, got %s", cfg2.Theme.Preset)
+	}
 	if cfg2.Theme.AccentHex != "#ff0000" {
 		t.Errorf("expected accent #ff0000, got %s", cfg2.Theme.AccentHex)
+	}
+	if !cfg2.SaveByUsername {
+		t.Errorf("expected save_by_username=true, got %v", cfg2.SaveByUsername)
 	}
 }
 
@@ -75,8 +83,14 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.PerVideoTimeout != 5*time.Minute {
 		t.Errorf("expected default per_video_timeout=5m, got %v", cfg.PerVideoTimeout)
 	}
+	if cfg.Theme.Preset != DefaultThemePreset {
+		t.Errorf("expected default theme preset %s, got %s", DefaultThemePreset, cfg.Theme.Preset)
+	}
 	if cfg.Theme.AccentHex != "#fafafa" {
 		t.Errorf("expected default accent #fafafa, got %s", cfg.Theme.AccentHex)
+	}
+	if cfg.SaveByUsername {
+		t.Errorf("expected save_by_username=false by default, got %v", cfg.SaveByUsername)
 	}
 	if cfg.DefaultDownloadLocation != "./downloads" {
 		t.Errorf("expected default download location ./downloads, got %s", cfg.DefaultDownloadLocation)

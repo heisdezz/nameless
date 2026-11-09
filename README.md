@@ -30,7 +30,7 @@ Unlike browser extensions or single-video downloaders, nameless is designed spec
 - **Resilient Queue Controls**: Download all, pause in-flight downloads, resume unfinished runs, or retry only failed videos with a single click.
 - **Built-In Video Player**: Watch downloaded videos without leaving the app — real playback with sound through the system's media engine (via `mygo`'s `ui/video`), play/pause, seek scrubber, mute toggle, "Up Next" queue, and a randomized "More From Profile" grid.
 - **Fullscreen Video Mode**: One click expands the player to fullscreen video — window goes fullscreen and the app collapses to just the viewport with floating controls; `Escape` steps out.
-- **Customizable Native UI**: Clean desktop interface with adjustable theme tokens (accent color hex, corner radius, spacing scale, dark mode toggle, and presets).
+- **Customizable Native UI**: Clean desktop interface with 6 built-in full-color themes — Shadcn (default), Catppuccin, Atom One, Dracula, Nord, and Tokyo Night — plus adjustable tokens (accent color hex, corner radius, spacing scale, dark mode toggle). Theme changes animate in live before you save.
 - **yt-dlp Detection & Power Settings**: Automatic binary detection with version reporting, duration-based timeouts, custom output directory, and optional cookie/session authentication for private or restricted accounts. nameless can also download and manage its own yt-dlp copy.
 - **Cross-Platform & Pure Go**: Runs natively on Linux, macOS, and Windows with zero CGO requirements (`CGO_ENABLED=0`).
 
@@ -179,20 +179,19 @@ Settings are persisted in `config.json` in the application directory. You can ad
 
 ```json
 {
-  "Cookie": "",
-  "SessionID": "",
-  "EnvFile": "",
-  "DefaultDownloadLocation": "",
-  "Workers": 3,
-  "Delay": 1000000000,
-  "PerVideoTimeout": 300000000000,
-  "PreferYTDLP": true,
-  "InstallYTDLP": false,
-  "Theme": {
-    "AccentHex": "#4f46e5",
-    "Dark": false,
-    "Radius": 12,
-    "Spacing": 4
+  "cookie": "",
+  "session_id": "",
+  "env_file": ".env",
+  "default_download_location": "./downloads",
+  "workers": 3,
+  "delay": "1s",
+  "per_video_timeout": "5m0s",
+  "theme": {
+    "preset": "Shadcn",
+    "accent": "#fafafa",
+    "dark": true,
+    "radius": 8,
+    "spacing": 4
   }
 }
 ```
@@ -201,14 +200,15 @@ Settings are persisted in `config.json` in the application directory. You can ad
 
 | Field | Description | Default |
 |---|---|---|
-| `Workers` | Number of concurrent download workers (1–16). | `3` |
-| `Delay` | Delay between launching consecutive downloads (prevents aggressive rate limits). | `1s` |
-| `PerVideoTimeout` | Maximum timeout before killing a stalled video download process. | `5m` |
-| `DefaultDownloadLocation` | Default folder path where videos are saved. | System default |
-| `Theme.AccentHex` | Primary accent color in hex (`#rrggbb`). | `#4f46e5` |
-| `Theme.Dark` | Dark mode toggle (`true` / `false`). | `false` |
-| `Theme.Radius` | UI element corner radius (0–24 DIP). | `12` |
-| `Theme.Spacing` | Layout spacing unit (3 = Compact, 4 = Default, 5 = Roomy). | `4` |
+| `workers` | Number of concurrent download workers (1–16). | `3` |
+| `delay` | Delay between launching consecutive downloads (prevents aggressive rate limits). | `1s` |
+| `per_video_timeout` | Maximum timeout before killing a stalled video download process. | `5m` |
+| `default_download_location` | Default folder path where videos are saved. | System default |
+| `theme.preset` | Named color scheme: `Shadcn`, `Catppuccin`, `Atom One`, `Dracula`, `Nord`, or `Tokyo Night` (unknown names fall back to `Shadcn`). In dark mode the preset recolors the whole window; light mode keeps the zinc light chrome and takes the accent + semantic colors. | `Shadcn` |
+| `theme.accent` | Primary accent color in hex (`#rrggbb`). | `#fafafa` |
+| `theme.dark` | Dark mode toggle (`true` / `false`). | `true` |
+| `theme.radius` | UI element corner radius (4–16 DIP). | `8` |
+| `theme.spacing` | Layout spacing unit (3 = Compact, 4 = Default, 5 = Roomy). | `4` |
 
 ---
 

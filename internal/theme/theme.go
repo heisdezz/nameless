@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"nameless/internal/config"
+	appui "nameless/ui"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -26,9 +27,11 @@ const AnimationDuration = 200 * time.Millisecond
 // AnimationEaseOut is the default easing curve.
 var AnimationEaseOut = ui.EaseOut
 
-// Apply overlays cfg on base: Accent (+Hover/Pressed mixes), Radius, Spacing,
-// and the Dark base choice. The caller applies the result via SetTheme.
-// Now supports animated transitions via AnimateTo on the theme tokens.
+// Apply overlays cfg on base: the named preset palette (dark mode
+// recolors the whole window; light keeps the zinc chrome and only takes
+// accent + semantic colors), Accent (+Hover/Pressed mixes), Radius,
+// Spacing, and the Dark base choice. The caller applies the result via
+// SetTheme. Now supports animated transitions via AnimateTo on the theme tokens.
 func Apply(base *ui.Theme, cfg config.ThemeConfig) {
 	if base == nil {
 		return
@@ -45,6 +48,33 @@ func Apply(base *ui.Theme, cfg config.ThemeConfig) {
 	base.Dark = cfg.Dark
 	base.Radius = cfg.Radius
 	base.Spacing = cfg.Spacing
+
+	// Named preset: dark mode recolors the entire window from the preset
+	// palette. Light mode keeps the zinc light chrome; preset surfaces are
+	// tuned for dark backgrounds and would look wrong on white.
+	preset, ok := appui.ThemePresetByName(cfg.Preset)
+	if ok && cfg.Dark {
+		base.Background = hexToColor(preset.Background)
+		base.Surface = hexToColor(preset.Surface)
+		base.SurfaceHover = hexToColor(preset.SurfaceHover)
+		base.SurfacePressed = hexToColor(preset.SurfacePressed)
+		base.Border = hexToColor(preset.Border)
+		base.Text = hexToColor(preset.Text)
+		base.TextMuted = hexToColor(preset.TextMuted)
+		if hexToColor(preset.Accent) != (ui.Color{}) {
+			base.Accent = hexToColor(preset.Accent)
+			base.AccentHover = mixColor(base.Accent, ui.Color{R: 255, G: 255, B: 255, A: 255}, 0.15)
+			base.AccentPressed = mixColor(base.Accent, ui.Color{A: 255}, 0.15)
+		}
+	}
+	// Semantic colors follow the preset in both modes (each palette's
+	// danger/success work on white too, so light mode stays coherent).
+	if d := hexToColor(preset.Danger); d != (ui.Color{}) {
+		base.Danger = d
+	}
+	if s := hexToColor(preset.Success); s != (ui.Color{}) {
+		base.Success = s
+	}
 }
 
 // mixColor blends c toward target by t (0..1).

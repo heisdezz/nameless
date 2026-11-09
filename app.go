@@ -126,7 +126,6 @@ type app struct {
 	spacingSel     string
 	delayStr       string
 	timeoutStr     string
-	saveByUsername bool // Save downloads by username toggle
 
 	// yt-dlp detection state for the Settings screen (WS-D); ytdlpVersion
 	// is filled by a background Detect and shown via win.Update.
@@ -429,8 +428,6 @@ func (a *app) enterSettings() {
 	if a.outDir == "" {
 		a.outDir = a.cfg.DefaultDownloadLocation
 	}
-	// Initialize save-by-username toggle from config
-	a.saveByUsername = a.cfg.SaveByUsername
 	a.radiusF64 = float64(a.cfg.Theme.Radius)
 	a.workersF64 = float64(a.cfg.EffectiveConcurrentDownloads())
 	a.connectionsF64 = float64(a.cfg.EffectiveConnectionsPerDownload())
@@ -494,7 +491,6 @@ func (a *app) saveSettings() {
 	if a.radiusF64 >= 0 {
 		a.cfg.Theme.Radius = float32(a.radiusF64)
 	}
-	a.cfg.SaveByUsername = a.saveByUsername
 	// Track theme change for animation
 	a.themeNew = a.cfg.Theme
 	a.themeDirty = true
@@ -519,8 +515,8 @@ func (a *app) resetSettingsToDefault() {
 	a.spacingSel = spacingLabel(a.cfg.Theme.Spacing)
 	a.delayStr = a.cfg.Delay.String()
 	a.timeoutStr = a.cfg.PerVideoTimeout.String()
-	// Reset save-by-username toggle
-	a.saveByUsername = false
+	// (saveByUsername resets with a.cfg = config.Default(); the toggle
+	// binds directly to cfg, so it reflects the reset automatically.)
 	// Reset theme animation state
 	a.themeNew = a.cfg.Theme
 	a.themeAnim = 0

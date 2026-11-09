@@ -197,6 +197,12 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 	}
 	pageVideos, totalPages := filterAndPaginate(props.Videos, search, sortBy, props.Page, pageSize)
 
+	// Generation signature: any change to page, page size, search, sort,
+	// or column count turns into a new element key for every card. That
+	// remounts the grid and replays the sweep reveal animation below —
+	// identical keys would keep the same elements mounted and skip it.
+	gen := fmt.Sprintf("p%d-n%d-s%s-q%s-c%d", props.Page, pageSize, sortBy, search, cols)
+
 	mygoui.Scroll(c).Fill().Children(func() {
 		mygoui.Column(c).Fill().Gap(18).Padding(24).Children(func() {
 			// Profile Header Card
@@ -398,8 +404,11 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 							v := item
 							idx := i
 
-							// Build the card box with base styling
-							cardBox := mygoui.Box(c).
+							// Build the card box with base styling. The
+							// generation-aware key makes page/filter/sort
+							// changes remount the card so its enter
+							// transition (the sweep) replays.
+							cardBox := mygoui.Box(c.Key(fmt.Sprintf("vid-card-%s-%d", gen, v.ID))).
 								FillWidth().
 								Height(280).
 								Radius(12).
@@ -424,7 +433,9 @@ func RenderProfileDetail(c *mygoui.Context, props ProfileDetailProps) {
 								})
 							}
 
-							c.Key(fmt.Sprintf("vid-card-item-%d", v.ID))
+							// Key for the card's first inner element too,
+							// so it remounts together with the box.
+							c.Key(fmt.Sprintf("vid-card-item-%s-%d", gen, v.ID))
 							cardBox.Children(func() {
 								components.RenderVideoCard(c, components.VideoCardProps{
 									ID:        v.ID,

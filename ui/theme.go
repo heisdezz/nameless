@@ -32,6 +32,81 @@ func ShadcnTheme() mygoui.Theme {
 // ErrColor returns the standard danger color for errors.
 func ErrColor() mygoui.Color { return mygoui.Color{R: 239, G: 68, B: 68, A: 255} }
 
+// DefaultThemeName is the preset applied when config has none yet.
+const DefaultThemeName = "Shadcn"
+
+// ThemePreset is a named, full-surface palette for the app chrome. Every
+// color is a #rrggbb hex string. Dark presets recolor the whole window;
+// light mode keeps the zinc light chrome and only takes the accent and
+// semantic colors from the preset.
+type ThemePreset struct {
+	Name           string
+	Background     string
+	Surface        string
+	SurfaceHover   string
+	SurfacePressed string
+	Border         string
+	Text           string
+	TextMuted      string
+	Accent         string
+	Danger         string
+	Success        string
+}
+
+// ThemePresets lists the built-in popular themes: the shadcn zinc
+// default plus five well-known editor palettes.
+func ThemePresets() []ThemePreset {
+	return []ThemePreset{
+		{
+			Name: "Shadcn", Background: "#09090b", Surface: "#18181b",
+			SurfaceHover: "#27272a", SurfacePressed: "#202023", Border: "#27272a",
+			Text: "#f4f4f5", TextMuted: "#a1a1aa",
+			Accent: "#fafafa", Danger: "#ef4444", Success: "#22c55e",
+		},
+		{
+			Name: "Catppuccin", Background: "#1e1e2e", Surface: "#181825",
+			SurfaceHover: "#313244", SurfacePressed: "#292a3d", Border: "#313244",
+			Text: "#cdd6f4", TextMuted: "#a6adc8",
+			Accent: "#cba6f7", Danger: "#f38ba8", Success: "#a6e3a1",
+		},
+		{
+			Name: "Atom One", Background: "#282c34", Surface: "#21252b",
+			SurfaceHover: "#3a3f4b", SurfacePressed: "#2f333d", Border: "#3e4451",
+			Text: "#d7dae0", TextMuted: "#5c6370",
+			Accent: "#61afef", Danger: "#e06c75", Success: "#98c379",
+		},
+		{
+			Name: "Dracula", Background: "#282a36", Surface: "#21222c",
+			SurfaceHover: "#44475a", SurfacePressed: "#363948", Border: "#44475a",
+			Text: "#f8f8f2", TextMuted: "#6272a4",
+			Accent: "#bd93f9", Danger: "#ff5555", Success: "#50fa7b",
+		},
+		{
+			Name: "Nord", Background: "#2e3440", Surface: "#3b4252",
+			SurfaceHover: "#434c5e", SurfacePressed: "#3f4760", Border: "#434c5e",
+			Text: "#eceff4", TextMuted: "#7b88a1",
+			Accent: "#88c0d0", Danger: "#bf616a", Success: "#a3be8c",
+		},
+		{
+			Name: "Tokyo Night", Background: "#1a1b26", Surface: "#16161e",
+			SurfaceHover: "#292e42", SurfacePressed: "#24283b", Border: "#292e42",
+			Text: "#c0caf5", TextMuted: "#565f89",
+			Accent: "#7aa2f7", Danger: "#f7768e", Success: "#9ece6a",
+		},
+	}
+}
+
+// ThemePresetByName looks a preset up by its display name; unknown names
+// fall back to the shadcn default.
+func ThemePresetByName(name string) (ThemePreset, bool) {
+	for _, p := range ThemePresets() {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return ThemePresets()[0], false
+}
+
 // LightShadcnTheme returns the light shadcn zinc theme tokens, mirroring
 // ShadcnTheme for the non-dark appearance.
 func LightShadcnTheme() mygoui.Theme {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	appui "nameless/ui"
 	"nameless/ui/pages"
 
 	"github.com/egoist/mygo/ui"
@@ -31,6 +32,7 @@ func (a *app) viewSettings(c *ui.Context) {
 		TikFormat:          &a.cfg.TikDownloaderFormat,
 		AccentHex:          &a.cfg.Theme.AccentHex,
 		Dark:               &a.cfg.Theme.Dark,
+		ThemePreset:        &a.cfg.Theme.Preset,
 		RadiusF64:          &a.radiusF64,
 		Spacing:            a.spacingSel,
 		EngineStatus:       a.ytdlpVersion,
@@ -52,12 +54,22 @@ func (a *app) viewSettings(c *ui.Context) {
 			a.themeNew = a.cfg.Theme
 			a.themeDirty = true
 		},
+		OnSelectThemePreset: func(name string) {
+			a.cfg.Theme.Preset = name
+			// Hand-picking a scheme also adopts its accent, unless the
+			// user then overrides it with an accent preset below.
+			if p, ok := appui.ThemePresetByName(name); ok {
+				a.cfg.Theme.AccentHex = p.Accent
+			}
+			a.themeNew = a.cfg.Theme
+			a.themeDirty = true
+		},
 		OnSelectSpacing: func(s string) {
 			a.spacingSel = s
 			a.cfg.Theme.Spacing = spacingUnit(s)
 			a.themeNew = a.cfg.Theme
 			a.themeDirty = true
 		},
-		SaveByUsername: &a.saveByUsername,
+		SaveByUsername: &a.cfg.SaveByUsername,
 	})
 }
