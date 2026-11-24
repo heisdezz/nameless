@@ -8,17 +8,17 @@ Unlike browser extensions or single-video downloaders, nameless is designed spec
 
 ## Screenshots
 
-| Home dashboard | Downloaded profile |
-|:---:|:---:|
+|             Home dashboard              |                Downloaded profile                |
+| :-------------------------------------: | :----------------------------------------------: |
 | ![Home dashboard](screenshots/home.png) | ![Downloaded profile](screenshots/downloads.png) |
 
-| In-app player | Fullscreen video mode |
-|:---:|:---:|
+|              In-app player               |                Fullscreen video mode                 |
+| :--------------------------------------: | :--------------------------------------------------: |
 | ![In-app player](screenshots/player.png) | ![Fullscreen video mode](screenshots/fullscreen.png) |
 
 ![Settings](screenshots/settings.png)
 
-*Settings — download destination, filename template, quality, additional assets, theme.*
+_Settings — download destination, filename template, quality, additional assets, theme._
 
 ---
 
@@ -65,6 +65,7 @@ Without a media framework, nameless still shows thumbnails and the **Play in Sys
 Choose the package manager for your operating system:
 
 #### Linux
+
 - **Arch Linux**:
   ```bash
   sudo pacman -S yt-dlp
@@ -83,6 +84,7 @@ Choose the package manager for your operating system:
   ```
 
 #### macOS
+
 - **Homebrew**:
   ```bash
   brew install yt-dlp
@@ -93,6 +95,7 @@ Choose the package manager for your operating system:
   ```
 
 #### Windows
+
 - **winget**:
   ```powershell
   winget install yt-dlp.yt-dlp
@@ -107,8 +110,25 @@ Choose the package manager for your operating system:
   ```
 
 Verify your installation:
+
 ```bash
 yt-dlp --version
+```
+
+---
+
+## Installation (Linux)
+
+Install the latest Linux release (`amd64` or `arm64`) with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/heisdezz/nameless/main/scripts/install.sh | bash
+```
+
+You can also pin a specific version or install directory:
+
+```bash
+VERSION=v0.1.0 INSTALL_DIR=/usr/local/bin bash -c "$(curl -fsSL https://raw.githubusercontent.com/heisdezz/nameless/main/scripts/install.sh)"
 ```
 
 ---
@@ -116,17 +136,20 @@ yt-dlp --version
 ## Building from Source
 
 ### Requirements
+
 - **Go**: 1.27 or later
 - **mygo**: Tooling for native Go desktop applications (`github.com/egoist/mygo`)
 
 ### Build Commands
 
 To build using `mygo`:
+
 ```bash
 go tool mygo build
 ```
 
 Alternatively, build directly with the standard Go toolchain (pure Go SQLite, no C compiler required):
+
 ```bash
 CGO_ENABLED=0 go build -o nameless
 ```
@@ -134,11 +157,13 @@ CGO_ENABLED=0 go build -o nameless
 ### Running Tests
 
 Run the test suite:
+
 ```bash
 CGO_ENABLED=0 go test ./...
 ```
 
 Run static analysis with `mygo vet`:
+
 ```bash
 go tool mygo vet .
 ```
@@ -198,23 +223,24 @@ Settings are persisted in `config.json` in the application directory. You can ad
 
 ### Key Settings
 
-| Field | Description | Default |
-|---|---|---|
-| `workers` | Number of concurrent download workers (1–16). | `3` |
-| `delay` | Delay between launching consecutive downloads (prevents aggressive rate limits). | `1s` |
-| `per_video_timeout` | Maximum timeout before killing a stalled video download process. | `5m` |
-| `default_download_location` | Default folder path where videos are saved. | System default |
-| `theme.preset` | Named color scheme: `Shadcn`, `Catppuccin`, `Atom One`, `Dracula`, `Nord`, or `Tokyo Night` (unknown names fall back to `Shadcn`). In dark mode the preset recolors the whole window; light mode keeps the zinc light chrome and takes the accent + semantic colors. | `Shadcn` |
-| `theme.accent` | Primary accent color in hex (`#rrggbb`). | `#fafafa` |
-| `theme.dark` | Dark mode toggle (`true` / `false`). | `true` |
-| `theme.radius` | UI element corner radius (4–16 DIP). | `8` |
-| `theme.spacing` | Layout spacing unit (3 = Compact, 4 = Default, 5 = Roomy). | `4` |
+| Field                       | Description                                                                                                                                                                                                                                                          | Default        |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `workers`                   | Number of concurrent download workers (1–16).                                                                                                                                                                                                                        | `3`            |
+| `delay`                     | Delay between launching consecutive downloads (prevents aggressive rate limits).                                                                                                                                                                                     | `1s`           |
+| `per_video_timeout`         | Maximum timeout before killing a stalled video download process.                                                                                                                                                                                                     | `5m`           |
+| `default_download_location` | Default folder path where videos are saved.                                                                                                                                                                                                                          | System default |
+| `theme.preset`              | Named color scheme: `Shadcn`, `Catppuccin`, `Atom One`, `Dracula`, `Nord`, or `Tokyo Night` (unknown names fall back to `Shadcn`). In dark mode the preset recolors the whole window; light mode keeps the zinc light chrome and takes the accent + semantic colors. | `Shadcn`       |
+| `theme.accent`              | Primary accent color in hex (`#rrggbb`).                                                                                                                                                                                                                             | `#fafafa`      |
+| `theme.dark`                | Dark mode toggle (`true` / `false`).                                                                                                                                                                                                                                 | `true`         |
+| `theme.radius`              | UI element corner radius (4–16 DIP).                                                                                                                                                                                                                                 | `8`            |
+| `theme.spacing`             | Layout spacing unit (3 = Compact, 4 = Default, 5 = Roomy).                                                                                                                                                                                                           | `4`            |
 
 ---
 
 ## Data Storage
 
 nameless stores profile history and video download progress in a SQLite database located at:
+
 - **Linux**: `~/.config/nameless/data.db`
 - **macOS**: `~/Library/Application Support/nameless/data.db`
 - **Windows**: `%APPDATA%\nameless\data.db`
