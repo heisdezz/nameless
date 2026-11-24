@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,23 @@ import (
 
 	"github.com/egoist/mygo/ui"
 )
+
+// TestMain isolates os.UserConfigDir for the whole test binary so tests
+// never read or write the real user data directory (initDB and the
+// thumbnail/avatar caches live under it).
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "nameless-test-cfg")
+	if err != nil {
+		panic(fmt.Sprintf("could not create temp config dir: %v", err))
+	}
+	defer os.RemoveAll(tmp)
+	os.Setenv("XDG_CONFIG_HOME", tmp)
+	os.Setenv("APPDATA", tmp) // windows
+	code := m.Run()
+	os.Unsetenv("XDG_CONFIG_HOME")
+	os.Unsetenv("APPDATA")
+	os.Exit(code)
+}
 
 func TestView(t *testing.T) {
 	a := &app{cfg: defaultConfig()}
@@ -224,6 +242,10 @@ func TestMinWindowResize(t *testing.T) {
 func TestSidebarNavigation(t *testing.T) {
 	a := &app{cfg: defaultConfig()}
 	a.initDB()
+	// Seed the isolated DB so the synchronous profiles reload (showProfilesList
+	// runs inline when headless) finds the fixtures instead of empty rows.
+	a.db.Exec(`INSERT INTO profiles(id, url, name) VALUES(1, 'https://tiktok.com/@tiktok_dancer', 'tiktok_dancer')`)
+	a.db.Exec(`INSERT INTO profiles(id, url, name) VALUES(2, 'https://tiktok.com/@music_clips', 'music_clips')`)
 	a.profiles = []profile{
 		{id: 1, name: "tiktok_dancer", url: "https://tiktok.com/@tiktok_dancer"},
 		{id: 2, name: "music_clips", url: "https://tiktok.com/@music_clips"},
