@@ -18,9 +18,17 @@ func (a *app) viewProfilesList(c *ui.Context) {
 
 	// Counts come from the one-query cache (refreshProfileCounts), not a
 	// DB query per card per frame. Avatars come from the decode cache.
+	// Snapshot copies (not references): background decoders keep adding
+	// entries to the live caches, so a reference could race the render.
 	a.mu.Lock()
-	counts := a.profileCounts
-	avatars := a.avatarCache
+	counts := make(map[int64]int, len(a.profileCounts))
+	for id, n := range a.profileCounts {
+		counts[id] = n
+	}
+	avatars := make(map[int64]*ui.Bitmap, len(a.avatarCache))
+	for id, b := range a.avatarCache {
+		avatars[id] = b
+	}
 	a.mu.Unlock()
 	items := make([]pages.ProfileItem, len(a.profiles))
 	for i, p := range a.profiles {
@@ -115,9 +123,17 @@ func (a *app) viewProfile(c *ui.Context) {
 	// One lock for the whole snapshot (was one per video per frame);
 	// thumbnails are kicked from applyProfile/openProfile, not here —
 	// spawning ffmpeg jobs from the per-frame view caused the lag.
+	// Snapshot copies (not references): thumbnail/duration decoders keep
+	// adding entries to the live caches off the UI thread.
 	a.mu.Lock()
-	thumbCache := a.thumbCache
-	videoDurations := a.videoDurations
+	videoDurations := make(map[int64]string, len(a.videoDurations))
+	for id, s := range a.videoDurations {
+		videoDurations[id] = s
+	}
+	thumbCache := make(map[int64]*ui.Bitmap, len(a.thumbCache))
+	for id, b := range a.thumbCache {
+		thumbCache[id] = b
+	}
 	a.mu.Unlock()
 	videoItems := make([]pages.VideoItem, len(a.videos))
 	for i, v := range a.videos {
