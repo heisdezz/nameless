@@ -1,14 +1,15 @@
 name: Release
 
 # Build binaries for Windows, macOS and Linux on every update to main,
-# and publish them as a GitHub Release (tag v<run_number>).
+# derive the semantic version from Conventional Commits (see commit.md),
+# and publish a GitHub Release when a version bump is warranted.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write # required to create releases
+  contents: write # required to create tags and releases
 
 # Never cancel a release build halfway through.
 concurrency:
@@ -30,39 +31,108 @@ jobs:
           CGO_ENABLED: "0"
         run: go test ./...
 
+  version:
+    name: Compute version
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.semver.outputs.should_release }}
+      version: ${{ steps.semver.outputs.version }}
+      tag: ${{ steps.semver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compute next semantic version
+        id: semver
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          latest_tag=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
+
+          if [ -z "$latest_tag" ]; then
+            base_ver=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' mygo.json | head -n1 | sed -E 's/.*"([^"]+)"/\1/')
+            base_ver="${base_ver:-0.1.0}"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$base_ver" >> "$GITHUB_OUTPUT"
+            echo "tag=v$base_ver" >> "$GITHUB_OUTPUT"
+            echo "No existing semver tag found; publishing initial release v$base_ver"
+            exit 0
+          fi
+
+          ver="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$ver"
+
+          bump="none"
+          while IFS= read -r msg; do
+            if grep -qE '^[a-z]+(\([^)]+\))?!:' <<< "$msg" || grep -q 'BREAKING CHANGE:' <<< "$msg"; then
+              bump="major"
+              break
+            elif grep -qE '^feat(\([^)]+\))?:' <<< "$msg"; then
+              [ "$bump" != "major" ] && bump="minor"
+            elif grep -qE '^(fix|perf|revert)(\([^)]+\))?:' <<< "$msg"; then
+              [ "$bump" = "none" ] && bump="patch"
+            fi
+          done < <(git log "${latest_tag}..HEAD" --format='%s%n%b')
+
+          if [ "$bump" = "none" ]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "No version-bumping commits since $latest_tag; skipping release."
+            exit 0
+          fi
+
+          case "$bump" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          next_ver="${major}.${minor}.${patch}"
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$next_ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$next_ver" >> "$GITHUB_OUTPUT"
+          echo "Bumping $latest_tag -> v$next_ver ($bump)"
+
   build:
     name: Build ${{ matrix.asset }}
-    needs: test
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            goos: windows
+          - goos: windows
             goarch: amd64
             asset: nameless-windows-amd64.exe
             bin: nameless-windows-amd64.exe
-          - os: ubuntu-latest
-            goos: linux
+            ldflags: -s -w -H=windowsgui
+          - goos: windows
+            goarch: arm64
+            asset: nameless-windows-arm64.exe
+            bin: nameless-windows-arm64.exe
+            ldflags: -s -w -H=windowsgui
+          - goos: linux
             goarch: amd64
             asset: nameless-linux-amd64
             bin: nameless-linux-amd64
-          - os: ubuntu-latest
-            goos: linux
+            ldflags: -s -w
+          - goos: linux
             goarch: arm64
             asset: nameless-linux-arm64
             bin: nameless-linux-arm64
-          - os: macos-latest
-            goos: darwin
+            ldflags: -s -w
+          - goos: darwin
             goarch: amd64
             asset: nameless-macos-amd64
             bin: nameless-macos-amd64
-          - os: macos-latest
-            goos: darwin
+            ldflags: -s -w
+          - goos: darwin
             goarch: arm64
             asset: nameless-macos-arm64
             bin: nameless-macos-arm64
-    runs-on: ${{ matrix.os }}
+            ldflags: -s -w
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -77,7 +147,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "dist/${{ matrix.bin }}" .
+          go build -trimpath -ldflags="${{ matrix.ldflags }}" -o "dist/${{ matrix.bin }}" .
           ls -lh "dist/${{ matrix.bin }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -88,7 +158,8 @@ jobs:
 
   release:
     name: Publish release
-    needs: build
+    needs: [version, build]
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -98,14 +169,15 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: nameless v${{ github.run_number }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: nameless ${{ needs.version.outputs.tag }}
           body: |
-            Automated build from `main` at ${{ github.sha }}.
+            Automated release ${{ needs.version.outputs.tag }} from `main` at ${{ github.sha }}.
 
             | Asset | Platform |
             |---|---|
             | `nameless-windows-amd64.exe` | Windows (x86_64) |
+            | `nameless-windows-arm64.exe` | Windows (ARM64) |
             | `nameless-linux-amd64` | Linux (x86_64) |
             | `nameless-linux-arm64` | Linux (ARM64) |
             | `nameless-macos-amd64` | macOS (Intel) |
