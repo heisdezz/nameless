@@ -40,6 +40,7 @@ const (
 	// This is NOT concurrent downloads. Default 5.
 	DefaultConnectionsPerDownload = 5
 	MaxConnectionsPerDownload     = 16
+	DefaultDownloadEngine         = "tikdownloader"
 )
 
 // ThemeConfig is the persisted theme state; internal/theme adapts it to ui.Theme.
@@ -75,6 +76,7 @@ type Config struct {
 	PerVideoTimeout           time.Duration // parsed from "5m"
 	PreferYTDLP, InstallYTDLP bool
 	Theme                     ThemeConfig
+	DownloadEngine            string // "auto", "tikdownloader", "tikwm", "lovetik", "ssstik", "ytdlp"
 	TikDownloaderAPI          string // tikdownloader.io API endpoint
 	TikDownloaderCookies      string // cookies for API auth
 	TikDownloaderFormat       string // format selector (mp4, hd, etc.)
@@ -102,6 +104,7 @@ func Default() *Config {
 			Radius:    DefaultRadius,
 			Spacing:   DefaultSpacing,
 		},
+		DownloadEngine:       DefaultDownloadEngine,
 		TikDownloaderAPI:     "https://tikdownloader.io",
 		TikDownloaderCookies: "",
 		TikDownloaderFormat:  "mp4",
@@ -145,6 +148,7 @@ type themeFile struct {
 
 // tikFile mirrors the "tikdownloader" object in config.json.
 type tikFile struct {
+	Engine      string `json:"engine,omitempty"`
 	APIEndpoint string `json:"api_endpoint,omitempty"`
 	APICookies  string `json:"api_cookies,omitempty"`
 	Format      string `json:"format,omitempty"`
@@ -264,6 +268,9 @@ func parse(raw []byte, path string) (*Config, error) {
 		cfg.ConnectionsPerDownload = f.ConnectionsPerDownload
 	}
 	if f.TikDownloader != nil {
+		if f.TikDownloader.Engine != "" {
+			cfg.DownloadEngine = f.TikDownloader.Engine
+		}
 		if f.TikDownloader.APIEndpoint != "" {
 			cfg.TikDownloaderAPI = f.TikDownloader.APIEndpoint
 		}
@@ -369,6 +376,7 @@ func (c *Config) toFile() configFile {
 			Spacing: c.Theme.Spacing,
 		},
 		TikDownloader: &tikFile{
+			Engine:      c.DownloadEngine,
 			APIEndpoint: c.TikDownloaderAPI,
 			APICookies:  c.TikDownloaderCookies,
 			Format:      c.TikDownloaderFormat,

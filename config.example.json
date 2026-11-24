@@ -17,6 +17,7 @@
     "spacing": 5
   },
   "tikdownloader": {
+    "engine": "tikdownloader",
     "api_endpoint": "https://tikdownloader.io",
     "format": "mp4"
   },

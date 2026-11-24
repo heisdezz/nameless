@@ -3,6 +3,7 @@ package pages
 import (
 	"fmt"
 
+	"nameless/internal/tikdownloader"
 	"nameless/ui"
 
 	mygoui "github.com/egoist/mygo/ui"
@@ -27,6 +28,7 @@ type SettingsProps struct {
 	SessionID          *string
 	CookiesFromBrowser *string
 	YTDLPPath          *string
+	DownloadEngine     string
 	TikAPI             *string
 	TikCookies         *string
 	TikFormat          *string
@@ -45,6 +47,7 @@ type SettingsProps struct {
 	OnSelectAccentPreset func(hex string)
 	OnSelectThemePreset  func(name string)
 	OnSelectSpacing      func(spacing string)
+	OnSelectEngine       func(engine string)
 	SaveByUsername       *bool
 }
 
@@ -282,30 +285,53 @@ func RenderSettings(c *mygoui.Context, props SettingsProps) {
 
 				mygoui.Box(c).Height(1).FillWidth().Background(t.Border)
 
-				// TikDownloader engine (video files come from tikdownloader.io;
-				// yt-dlp is only used for profile URLs/metadata + sidecars)
-				mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+				// TikDownloader engine selector + endpoint options
+				activeEngine := tikdownloader.NormalizeEngine(props.DownloadEngine)
+				var activeDesc string
+				mygoui.Column(c).Gap(8).FillWidth().Children(func() {
 					mygoui.Text(c, "TikDownloader Engine").FontSize(12).Bold()
-					mygoui.Text(c, "API used for the actual video file downloads.").TextColor(t.TextMuted).FontSize(11)
+					mygoui.Row(c).Gap(8).Wrap().AlignItems(mygoui.Center).Children(func() {
+						for _, eng := range tikdownloader.AvailableEngines() {
+							engInfo := eng
+							selected := activeEngine == engInfo.ID
+							if selected {
+								activeDesc = engInfo.Description
+							}
+							btn := mygoui.Button(c.Key("engine-"+engInfo.ID), engInfo.Label).Radius(6)
+							if selected {
+								btn.Background(t.SurfaceHover).TextColor(t.Text).Bold()
+							} else {
+								btn.Background(t.Background).TextColor(t.TextMuted)
+							}
+							if btn.Clicked() && props.OnSelectEngine != nil {
+								props.OnSelectEngine(engInfo.ID)
+							}
+						}
+					})
+					if activeDesc != "" {
+						mygoui.Text(c, activeDesc).TextColor(t.TextMuted).FontSize(11)
+					}
 				})
-				if props.TikAPI != nil {
-					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
-						mygoui.Text(c, "TikDownloader API Endpoint").FontSize(12).Bold()
-						mygoui.TextInput(c, props.TikAPI).Placeholder("https://tikdownloader.io").FillWidth()
-					})
-				}
-				if props.TikCookies != nil {
-					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
-						mygoui.Text(c, "TikDownloader API Cookies").FontSize(12).Bold()
-						mygoui.TextInput(c, props.TikCookies).Placeholder("cf_clearance=...").FillWidth()
-						mygoui.Text(c, "Optional cookies for the tikdownloader.io API (separate from TikTok cookies above).").TextColor(t.TextMuted).FontSize(11)
-					})
+				if activeEngine == tikdownloader.EngineTikDownloader || activeEngine == tikdownloader.EngineAuto {
+					if props.TikAPI != nil {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+							mygoui.Text(c, "TikDownloader API Endpoint").FontSize(12).Bold()
+							mygoui.TextInput(c, props.TikAPI).Placeholder("https://tikdownloader.io").FillWidth()
+						})
+					}
+					if props.TikCookies != nil {
+						mygoui.Column(c).Gap(6).FillWidth().Children(func() {
+							mygoui.Text(c, "TikDownloader API Cookies").FontSize(12).Bold()
+							mygoui.TextInput(c, props.TikCookies).Placeholder("cf_clearance=...").FillWidth()
+							mygoui.Text(c, "Optional cookies for the tikdownloader.io API (separate from TikTok cookies above).").TextColor(t.TextMuted).FontSize(11)
+						})
+					}
 				}
 				if props.TikFormat != nil {
 					mygoui.Column(c).Gap(6).FillWidth().Children(func() {
-						mygoui.Text(c, "TikDownloader Format").FontSize(12).Bold()
+						mygoui.Text(c, "Download Format").FontSize(12).Bold()
 						mygoui.TextInput(c, props.TikFormat).Placeholder("mp4").FillWidth()
-						mygoui.Text(c, "Format selector for tikdownloader.io (mp4, hd, 720p, 1080p, best). Non-default values win over Video Quality above.").TextColor(t.TextMuted).FontSize(11)
+						mygoui.Text(c, "Format selector (mp4, hd, 720p, 1080p, best, audio_only). Non-default values win over Video Quality above.").TextColor(t.TextMuted).FontSize(11)
 					})
 				}
 			})

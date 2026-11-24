@@ -2,6 +2,7 @@ package tikdownloader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -92,4 +93,185 @@ func TestApplyNamingTemplate(t *testing.T) {
 	if got := ApplyNamingTemplate("%(uploader)s/%(id)s.%(ext)s", VideoMeta{ID: "1", Uploader: "a/b"}, "mp4"); strings.Contains(got, "/") {
 		t.Fatalf("path separator not stripped: %q", got)
 	}
+}
+
+func TestEnginesDownloadVideo(t *testing.T) {
+	videoPayload := []byte("fake-mp4-content-1234567890")
+	audioPayload := []byte("fake-mp3-content-1234567890")
+
+	// Mock CDN server serving the media bytes.
+	cdnSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".mp3") {
+			_, _ = w.Write(audioPayload)
+			return
+		}
+		_, _ = w.Write(videoPayload)
+	}))
+	defer cdnSrv.Close()
+
+	t.Run("tikwm hd and audio", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/" {
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{
+					"hdplay": cdnSrv.URL + "/hd.mp4",
+					"play":   cdnSrv.URL + "/sd.mp4",
+					"music":  cdnSrv.URL + "/audio.mp3",
+				},
+			})
+		}))
+		defer srv.Close()
+
+		outDir := t.TempDir()
+		dl := NewWithOptions(Options{
+			Engine:      EngineTikWM,
+			APIEndpoint: srv.URL,
+			Format:      "hd",
+			Connections: 1,
+			HTTPClient:  srv.Client(),
+		})
+		res, err := dl.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/111", outDir)
+		if err != nil || !res.Success {
+			t.Fatalf("tikwm hd failed: res=%+v err=%v", res, err)
+		}
+		if !strings.HasSuffix(res.Path, ".mp4") {
+			t.Fatalf("expected .mp4, got %q", res.Path)
+		}
+		got, _ := os.ReadFile(res.Path)
+		if string(got) != string(videoPayload) {
+			t.Fatalf("unexpected payload %q", string(got))
+		}
+
+		// Audio mode
+		dlAudio := NewWithOptions(Options{
+			Engine:      EngineTikWM,
+			APIEndpoint: srv.URL,
+			Format:      "audio_only",
+			Connections: 1,
+			HTTPClient:  srv.Client(),
+		})
+		resA, err := dlAudio.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/112", outDir)
+		if err != nil || !resA.Success {
+			t.Fatalf("tikwm audio failed: res=%+v err=%v", resA, err)
+		}
+		if !strings.HasSuffix(resA.Path, ".mp3") {
+			t.Fatalf("expected .mp3, got %q", resA.Path)
+		}
+	})
+
+	t.Run("lovetik", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/ajax/search" {
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"links": []map[string]any{
+					{"a": cdnSrv.URL + "/audio.mp3", "t": "<b>MP3</b> Audio"},
+					{"a": cdnSrv.URL + "/video.mp4", "t": "<b>MP4</b> [1080p] (No Watermark)"},
+				},
+			})
+		}))
+		defer srv.Close()
+
+		dl := NewWithOptions(Options{
+			Engine:      EngineLoveTik,
+			APIEndpoint: srv.URL,
+			Connections: 1,
+			HTTPClient:  srv.Client(),
+		})
+		res, err := dl.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/222", t.TempDir())
+		if err != nil || !res.Success {
+			t.Fatalf("lovetik failed: res=%+v err=%v", res, err)
+		}
+		got, _ := os.ReadFile(res.Path)
+		if string(got) != string(videoPayload) {
+			t.Fatalf("unexpected payload %q", string(got))
+		}
+	})
+
+	t.Run("ssstik", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/en":
+				_, _ = fmt.Fprint(w, `<script>var s_tt = 'tok123';</script>`)
+			case "/abc":
+				if err := r.ParseForm(); err != nil || r.FormValue("tt") != "tok123" {
+					http.Error(w, "bad token", http.StatusBadRequest)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `<a href="%s/sss.mp4" class="pure-button download_link without_watermark">Without watermark</a>`, cdnSrv.URL)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+
+		dl := NewWithOptions(Options{
+			Engine:      EngineSSSTik,
+			APIEndpoint: srv.URL,
+			Connections: 1,
+			HTTPClient:  srv.Client(),
+		})
+		res, err := dl.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/333", t.TempDir())
+		if err != nil || !res.Success {
+			t.Fatalf("ssstik failed: res=%+v err=%v", res, err)
+		}
+	})
+
+	t.Run("auto fallback when primary is rate-limited", func(t *testing.T) {
+		rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+		}))
+		defer rateLimited.Close()
+
+		tikwmOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{"hdplay": cdnSrv.URL + "/ok.mp4"},
+			})
+		}))
+		defer tikwmOK.Close()
+
+		dl := NewWithOptions(Options{
+			Engine:      EngineAuto,
+			Connections: 1,
+			HTTPClient:  tikwmOK.Client(),
+			engineEndpoints: map[string]string{
+				EngineTikDownloader: rateLimited.URL,
+				EngineTikWM:         tikwmOK.URL,
+				EngineLoveTik:       rateLimited.URL,
+				EngineSSSTik:        rateLimited.URL,
+			},
+		})
+		res, err := dl.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/444", t.TempDir())
+		if err != nil || !res.Success {
+			t.Fatalf("auto fallback failed: res=%+v err=%v", res, err)
+		}
+	})
+
+	t.Run("rate limit error surfaces clearly", func(t *testing.T) {
+		rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		}))
+		defer rateLimited.Close()
+
+		dl := NewWithOptions(Options{
+			Engine:      EngineTikDownloader,
+			APIEndpoint: rateLimited.URL,
+			Connections: 1,
+			HTTPClient:  rateLimited.Client(),
+		})
+		res, err := dl.DownloadVideo(context.Background(), "https://www.tiktok.com/@u/video/555", t.TempDir())
+		if err == nil || res.Err == nil || !strings.Contains(err.Error(), "429") {
+			t.Fatalf("expected 429 error, got res=%+v err=%v", res, err)
+		}
+	})
 }

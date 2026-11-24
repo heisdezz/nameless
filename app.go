@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nameless/internal/config"
@@ -193,6 +194,7 @@ func defaultConfig() *config.Config {
 			Radius:    12,
 			Spacing:   4,
 		},
+		DownloadEngine:      config.DefaultDownloadEngine,
 		TikDownloaderAPI:    "https://tikdownloader.io",
 		TikDownloaderFormat: "mp4",
 		SaveByUsername:      false,
@@ -735,23 +737,33 @@ func (a *app) checkYtdlpUpdate() {
 
 // refreshProfileCounts recomputes per-profile video counts with a single
 // GROUP BY query. Called on startup and when the profiles list is shown,
-// never per frame.
+// never per frame. Builds the map locally and publishes it atomically so
+// view-side snapshots never observe a half-filled map.
 func (a *app) refreshProfileCounts() {
-	a.profileCounts = make(map[int64]int)
 	if a.db == nil {
+		a.mu.Lock()
+		a.profileCounts = nil
+		a.mu.Unlock()
 		return
 	}
+	counts := make(map[int64]int)
 	rows, err := a.db.Query("SELECT profile_id, COUNT(*) FROM videos GROUP BY profile_id")
 	if err != nil {
+		a.mu.Lock()
+		a.profileCounts = counts
+		a.mu.Unlock()
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id, n int64
 		if err := rows.Scan(&id, &n); err == nil {
-			a.profileCounts[id] = int(n)
+			counts[id] = int(n)
 		}
 	}
+	a.mu.Lock()
+	a.profileCounts = counts
+	a.mu.Unlock()
 }
 
 // showProfilesList navigates to the profiles directory, refreshing the
@@ -762,10 +774,17 @@ func (a *app) showProfilesList() {
 	if a.profilesPageSize <= 0 {
 		a.profilesPageSize = 20
 	}
-	go func() {
+	run := func() {
 		a.loadProfiles()
 		a.onUI(func() { a.profilesLoading = false })
-	}()
+	}
+	if a.win == nil {
+		// Headless (tests): run inline on the caller thread — deterministic
+		// and race-free to observe. The real app runs it off-thread.
+		run()
+		return
+	}
+	go run()
 }
 
 // loadAvatar decodes one profile avatar into the cache (once, in-flight
@@ -814,29 +833,46 @@ func (a *app) loadAvatar(id int64, avatarPath string) {
 	}
 }
 
-// loadProfiles reads the profile list. UI thread only.
+// loadProfiles queries the profiles list and publishes it on the UI
+// thread via onUI, so app fields are only ever written there. The DB
+// reads are safe on any thread (no app state mirrored); the publish is
+// queued in win.Update when a window exists (mirrors openProfile).
 func (a *app) loadProfiles() {
 	if a.db == nil {
+		a.onUI(func() { a.profiles = nil })
 		return
 	}
 	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_url TEXT")
 	a.db.Exec("ALTER TABLE profiles ADD COLUMN avatar_path TEXT")
+	ps := a.queryProfiles()
+	a.onUI(func() { a.publishProfiles(ps) })
+}
+
+// queryProfiles reads the profiles table into locals. DB only, no app
+// state; safe on any thread.
+func (a *app) queryProfiles() []profile {
 	rows, err := a.db.Query("SELECT id,url,COALESCE(name, ''),COALESCE(avatar_url, ''),COALESCE(avatar_path, '') FROM profiles")
 	if err != nil {
-		return
+		return nil
 	}
 	defer rows.Close()
-	a.profiles = nil
+	var ps []profile
 	for rows.Next() {
 		var p profile
 		if err := rows.Scan(&p.id, &p.url, &p.name, &p.avatarURL, &p.avatarPath); err != nil {
-			return
+			return ps
 		}
-		a.profiles = append(a.profiles, p)
+		ps = append(ps, p)
 	}
-	rows.Close()
+	return ps
+}
+
+// publishProfiles installs a queried profile list on the UI thread,
+// refreshes the counts cache, and kicks avatar decoders for new paths.
+func (a *app) publishProfiles(ps []profile) {
+	a.profiles = ps
 	a.refreshProfileCounts()
-	for _, p := range a.profiles {
+	for _, p := range ps {
 		if p.avatarPath != "" {
 			go a.loadAvatar(p.id, p.avatarPath)
 		}
@@ -1255,7 +1291,7 @@ func (a *app) openProfile(p profile) {
 	a.profileLoadGen++
 	gen := a.profileLoadGen
 	profileID := p.id
-	go func() {
+	run := func() {
 		vids := a.loadVideos(profileID)
 		a.onUI(func() {
 			if gen != a.profileLoadGen {
@@ -1269,7 +1305,14 @@ func (a *app) openProfile(p profile) {
 				}
 			}
 		})
-	}()
+	}
+	if a.win == nil {
+		// Headless (tests): run inline on the caller thread — deterministic
+		// and race-free to observe. The real app runs it off-thread.
+		run()
+		return
+	}
+	go run()
 }
 
 func (a *app) startDownload() {
@@ -1288,9 +1331,11 @@ func (a *app) startDownload() {
 	if cfg == nil {
 		cfg = defaultConfig()
 	}
-	// Use tikdownloader.io for actual video downloading. Connections per
-	// download (default 5) is separate from concurrent downloads below.
-	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, effectiveTikFormat(cfg), cfg.EffectiveConnectionsPerDownload())
+	// Use configured download engine (tikdownloader, tikwm, lovetik, ssstik,
+	// ytdlp, or auto fallback). Connections per download (default 5) is
+	// separate from concurrent downloads below.
+	dl := a.newDownloader(cfg)
+	activeEngine := tikdownloader.NormalizeEngine(cfg.DownloadEngine)
 	outDir := a.effectiveOutputDir()
 	// If enabled, save videos in per-uploader subdirectories
 	// We'll compute the per-video directory after fetching metadata.
@@ -1353,6 +1398,7 @@ func (a *app) startDownload() {
 		}
 		jobs := make(chan job)
 		var wg sync.WaitGroup
+		var succeeded, failed atomic.Int64
 		workers := cfg.EffectiveConcurrentDownloads()
 		for w := 0; w < workers; w++ {
 			wg.Add(1)
@@ -1371,7 +1417,15 @@ func (a *app) startDownload() {
 					}
 					result, err := dl.DownloadVideo(dlCtx, j.videoURL, dlTargetDir)
 					dlCancel()
+					if err == nil && (result == nil || !result.Success) {
+						if result != nil && result.Err != nil {
+							err = result.Err
+						} else {
+							err = fmt.Errorf("download did not succeed")
+						}
+					}
 					if err != nil {
+						failed.Add(1)
 						if a.db != nil {
 							a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)
 						}
@@ -1381,6 +1435,7 @@ func (a *app) startDownload() {
 					// Apply the naming template, then fetch sidecars.
 					finalPath := a.renameWithTemplate(cfg, result.Path, j.meta)
 					_ = a.downloadSidecars(cfg, j.videoURL, finalPath)
+					succeeded.Add(1)
 					if a.db != nil {
 						a.db.Exec("UPDATE videos SET status=?, path=? WHERE id=?", "done", finalPath, id)
 					}
@@ -1412,7 +1467,12 @@ func (a *app) startDownload() {
 		wg.Wait()
 
 		a.downloading = false
-		a.showToast("Download Complete", fmt.Sprintf("All videos downloaded via tikdownloader.io (%d entries)", len(meta.Entries)), "success")
+		okCount, failCount := succeeded.Load(), failed.Load()
+		if failCount > 0 {
+			a.showToast("Download Finished", fmt.Sprintf("Downloaded %d via %s, %d failed (try switching engine in Settings)", okCount, activeEngine, failCount), "error")
+		} else {
+			a.showToast("Download Complete", fmt.Sprintf("All %d videos downloaded via %s", okCount, activeEngine), "success")
+		}
 	}()
 }
 

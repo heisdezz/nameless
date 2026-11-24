@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,11 +42,26 @@ type Downloader interface {
 	GetSupportedFormats() []string
 }
 
-// defaultDownloader implements Downloader using tikdownloader.io API
+// Options configures a multi-engine TikTok Downloader.
+type Options struct {
+	Engine      string // "auto", "tikdownloader", "tikwm", "lovetik", "ssstik"
+	APIEndpoint string
+	APICookies  string
+	Format      string
+	Connections int
+	HTTPClient  *http.Client
+	// engineEndpoints allows tests to override per-engine base URLs.
+	engineEndpoints map[string]string
+}
+
+// defaultDownloader implements Downloader across one or more HTTP engines.
 type defaultDownloader struct {
-	apiEndpoint string
-	apiCookies  string
-	format      string
+	engine          string
+	apiEndpoint     string
+	apiCookies      string
+	format          string
+	httpClient      *http.Client
+	engineEndpoints map[string]string
 	// connections is the number of parallel Range connections used for a
 	// single file download. It is distinct from how many videos may be
 	// downloaded at once (config Workers / concurrent downloads).
@@ -57,81 +71,104 @@ type defaultDownloader struct {
 // New creates a new tikdownloader Downloader. connections <= 0 means the
 // default (5); connections == 1 forces a single-stream download.
 func New(apiEndpoint, apiCookies, format string, connections int) Downloader {
-	if apiEndpoint == "" {
-		apiEndpoint = "https://tikdownloader.io"
-	}
+	return NewWithOptions(Options{
+		Engine:      EngineTikDownloader,
+		APIEndpoint: apiEndpoint,
+		APICookies:  apiCookies,
+		Format:      format,
+		Connections: connections,
+	})
+}
+
+// NewWithOptions creates a Downloader configured by Options.
+func NewWithOptions(opts Options) Downloader {
+	engine := NormalizeEngine(opts.Engine)
+	format := opts.Format
 	if format == "" {
 		format = "mp4"
 	}
+	connections := opts.Connections
 	if connections <= 0 {
 		connections = DefaultConnectionsPerDownload
 	}
+	client := opts.HTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout: 30 * time.Second,
+		}
+	}
 	return &defaultDownloader{
-		apiEndpoint: apiEndpoint,
-		apiCookies:  apiCookies,
-		format:      format,
-		connections: connections,
+		engine:          engine,
+		apiEndpoint:     opts.APIEndpoint,
+		apiCookies:      opts.APICookies,
+		format:          format,
+		httpClient:      client,
+		engineEndpoints: opts.engineEndpoints,
+		connections:     connections,
 	}
 }
 
-// DownloadVideo downloads a single video using tikdownloader.io API
+// DownloadVideo downloads a single video using the configured engine (or
+// falls through engines in order when EngineAuto is selected).
 func (d *defaultDownloader) DownloadVideo(ctx context.Context, videoURL, outDir string) (*DownloadResult, error) {
-	// Prepare API request. Use url.Values so URLs containing '&' or '?'
-	// are not mangled (the previous fmt.Sprintf version truncated them).
-	reqURL := d.apiEndpoint + "/api/ajaxSearch"
+	engines := []string{d.engine}
+	if d.engine == EngineAuto {
+		engines = []string{EngineTikDownloader, EngineTikWM, EngineLoveTik, EngineSSSTik}
+	}
 
-	form := url.Values{}
-	form.Set("q", videoURL)
-	form.Set("lang", "en")
-	reqBody := form.Encode()
+	var errs []string
+	for _, eng := range engines {
+		if ctx.Err() != nil {
+			err := ctx.Err()
+			return &DownloadResult{Err: err}, err
+		}
+		outPath, err := d.downloadWithEngine(ctx, eng, videoURL, outDir)
+		if err == nil {
+			return &DownloadResult{Success: true, Path: outPath}, nil
+		}
+		errs = append(errs, err.Error())
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(reqBody))
+	combined := fmt.Errorf("%s", strings.Join(errs, "; "))
+	return &DownloadResult{Err: combined}, combined
+}
+
+func (d *defaultDownloader) downloadWithEngine(ctx context.Context, engine, videoURL, outDir string) (string, error) {
+	baseURL := endpointForEngine(engine, d.apiEndpoint)
+	if override, ok := d.engineEndpoints[engine]; ok && override != "" {
+		baseURL = override
+	}
+
+	var (
+		downloadURL string
+		ext         string
+		err         error
+	)
+	switch engine {
+	case EngineTikDownloader:
+		downloadURL, ext, err = resolveTikDownloader(ctx, d.httpClient, baseURL, d.apiCookies, videoURL, d.format)
+	case EngineTikWM:
+		downloadURL, ext, err = resolveTikWM(ctx, d.httpClient, baseURL, videoURL, d.format)
+	case EngineLoveTik:
+		downloadURL, ext, err = resolveLoveTik(ctx, d.httpClient, baseURL, videoURL, d.format)
+	case EngineSSSTik:
+		downloadURL, ext, err = resolveSSSTik(ctx, d.httpClient, baseURL, videoURL, d.format)
+	default:
+		return "", fmt.Errorf("unsupported downloader engine %q", engine)
+	}
 	if err != nil {
-		return &DownloadResult{Err: fmt.Errorf("failed to create request: %w", err)}, nil
+		return "", err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", "https://tikdownloader.io/")
-
-	if d.apiCookies != "" {
-		req.Header.Set("Cookie", d.apiCookies)
+	if ext == "" {
+		ext = "mp4"
 	}
+	outFilePath := filepath.Join(outDir, fmt.Sprintf("tiktok_%s.%s", generateSafeFilename(videoURL), ext))
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+	if err := downloadFile(ctx, d.httpClient, downloadURL, outFilePath, d.connections); err != nil {
+		return "", fmt.Errorf("[%s] download failed: %w", engine, err)
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return &DownloadResult{Err: fmt.Errorf("API request failed: %w", err)}, nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return &DownloadResult{Err: fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))}, nil
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return &DownloadResult{Err: fmt.Errorf("failed to read response: %w", err)}, nil
-	}
-
-	// Parse the HTML response to extract download URL
-	downloadURL, err := extractDownloadURL(string(body))
-	if err != nil {
-		return &DownloadResult{Err: fmt.Errorf("failed to extract download URL: %w", err)}, nil
-	}
-
-	// Download the file
-	outFilePath := filepath.Join(outDir, fmt.Sprintf("tiktok_%s.%s", generateSafeFilename(videoURL), d.format))
-
-	if err := downloadFile(ctx, client, downloadURL, outFilePath, d.connections); err != nil {
-		return &DownloadResult{Err: fmt.Errorf("download failed: %w", err)}, nil
-	}
-
-	return &DownloadResult{Success: true, Path: outFilePath}, nil
+	return outFilePath, nil
 }
 
 // downloadFile downloads url to outPath using up to connections parallel

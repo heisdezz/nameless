@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,9 +119,48 @@ func (a *app) downloadSidecars(cfg *config.Config, videoURL, videoPath string) e
 	return cmd.Run()
 }
 
+type ytdlpDownloaderAdapter struct {
+	cfg *config.Config
+	dl  ytdlp.Downloader
+}
+
+func (y *ytdlpDownloaderAdapter) DownloadVideo(ctx context.Context, videoURL, outDir string) (*tikdownloader.DownloadResult, error) {
+	path, err := y.dl.Download(ctx, y.cfg, videoURL, outDir, nil)
+	if err != nil {
+		return &tikdownloader.DownloadResult{Err: err}, err
+	}
+	return &tikdownloader.DownloadResult{Success: true, Path: path}, nil
+}
+
+func (y *ytdlpDownloaderAdapter) GetSupportedFormats() []string {
+	return []string{"best", "1080p", "720p", "audio_only", "mp4"}
+}
+
+// newDownloader constructs the active tikdownloader.Downloader based on
+// cfg.DownloadEngine ("auto", "tikdownloader", "tikwm", "lovetik", "ssstik", "ytdlp").
+func (a *app) newDownloader(cfg *config.Config) tikdownloader.Downloader {
+	if cfg == nil {
+		cfg = defaultConfig()
+	}
+	engine := tikdownloader.NormalizeEngine(cfg.DownloadEngine)
+	if engine == tikdownloader.EngineYTDLP {
+		return &ytdlpDownloaderAdapter{
+			cfg: cfg,
+			dl:  ytdlp.NewDownloader(ytdlp.Binary{Path: a.ytDLPBin(cfg)}),
+		}
+	}
+	return tikdownloader.NewWithOptions(tikdownloader.Options{
+		Engine:      engine,
+		APIEndpoint: cfg.TikDownloaderAPI,
+		APICookies:  cfg.TikDownloaderCookies,
+		Format:      effectiveTikFormat(cfg),
+		Connections: cfg.EffectiveConnectionsPerDownload(),
+	})
+}
+
 // downloadSingleVideo downloads one video by ID (the per-card Download
-// button) via tikdownloader.io, applying the naming template, sidecars,
-// per-uploader folder, and per-video timeout like the batch worker.
+// button) via the configured download engine, applying the naming template,
+// sidecars, per-uploader folder, and per-video timeout like the batch worker.
 func (a *app) downloadSingleVideo(id int64) {
 	var cur video
 	found := false
@@ -146,7 +186,7 @@ func (a *app) downloadSingleVideo(id int64) {
 		outDir = filepath.Join(outDir, sanitizeSegment(a.currentProfile.name))
 		_ = os.MkdirAll(outDir, 0o755)
 	}
-	dl := tikdownloader.New(cfg.TikDownloaderAPI, cfg.TikDownloaderCookies, effectiveTikFormat(cfg), cfg.EffectiveConnectionsPerDownload())
+	dl := a.newDownloader(cfg)
 	meta := tikdownloader.VideoMeta{ID: strconv.FormatInt(id, 10), Title: cur.title}
 	if a.currentProfile != nil {
 		meta.Uploader = a.currentProfile.name
@@ -157,6 +197,13 @@ func (a *app) downloadSingleVideo(id int64) {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.PerVideoTimeout)
 		defer cancel()
 		result, err := dl.DownloadVideo(ctx, cur.url, outDir)
+		if err == nil && (result == nil || !result.Success) {
+			if result != nil && result.Err != nil {
+				err = result.Err
+			} else {
+				err = fmt.Errorf("download did not succeed")
+			}
+		}
 		if err != nil {
 			if a.db != nil {
 				a.db.Exec("UPDATE videos SET status=?, err=? WHERE id=?", "failed", err.Error(), id)

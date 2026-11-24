@@ -1,6 +1,7 @@
 package main
 
 import (
+	"nameless/internal/tikdownloader"
 	appui "nameless/ui"
 	"nameless/ui/pages"
 
@@ -27,6 +28,7 @@ func (a *app) viewSettings(c *ui.Context) {
 		SessionID:          &a.cfg.SessionID,
 		CookiesFromBrowser: &a.cfg.CookiesFromBrowser,
 		YTDLPPath:          &a.cfg.YTDLPPath,
+		DownloadEngine:     tikdownloader.NormalizeEngine(a.cfg.DownloadEngine),
 		TikAPI:             &a.cfg.TikDownloaderAPI,
 		TikCookies:         &a.cfg.TikDownloaderCookies,
 		TikFormat:          &a.cfg.TikDownloaderFormat,
@@ -69,6 +71,9 @@ func (a *app) viewSettings(c *ui.Context) {
 			a.cfg.Theme.Spacing = spacingUnit(s)
 			a.themeNew = a.cfg.Theme
 			a.themeDirty = true
+		},
+		OnSelectEngine: func(engine string) {
+			a.cfg.DownloadEngine = tikdownloader.NormalizeEngine(engine)
 		},
 		SaveByUsername: &a.cfg.SaveByUsername,
 	})
